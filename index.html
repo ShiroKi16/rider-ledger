@@ -182,6 +182,16 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .bk .inline{display:flex;gap:8px}
 .bk .inline input{flex:1;min-width:0}
 .ghost,.icon-btn{white-space:nowrap}
+.nat{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}
+.nat h3{margin:0;font-size:15px}
+.nat-row{display:flex;align-items:center;gap:10px;font-size:14px}
+.nat-row span{flex:1}
+.chk{display:flex;align-items:center;gap:10px;color:var(--ink);font-size:14px;font-weight:500}
+.chk input{width:20px;height:20px;accent-color:var(--accent-ink)}
+#natLearn summary{cursor:pointer;font-size:14px;font-weight:600}
+#natLearnList{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px;font-size:13px;max-height:260px;overflow-y:auto}
+#natLearnList li{border-bottom:1px solid var(--line);padding-bottom:6px;overflow-wrap:anywhere}
+#natLearnList small{display:block;color:var(--muted)}
 
 /* ---------- 배달 카운터 · 빠른 입력 ---------- */
 .ctr{display:grid;gap:12px}
@@ -291,6 +301,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           <button type="button" class="ghost" id="ctrReset" disabled>초기화</button>
         </div>
         <button type="button" class="ghost primary ctr-done" id="ctrDone" disabled>퇴근 정리 · 금액만 적으면 끝</button>
+        <p class="hint" id="ctrAuto" hidden></p>
       </section>
 
       <section class="panel" aria-labelledby="addH">
@@ -423,12 +434,28 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <label for="shopIn"><span>두 번째 수입처 이름 (지금: <b class="shop-name">가게</b>)</span></label>
         <div class="inline"><input type="text" id="shopIn" maxlength="20"><button type="button" class="ghost" id="shopSave">바꾸기</button></div>
       </div>
+      <div class="bk nat" id="natBox" hidden>
+        <h3>알림바 카운터 · 배민 자동 카운트</h3>
+        <div class="nat-row"><span>알림 보내기 권한</span><b id="natNotif"></b><button type="button" class="ghost" id="natNotifBtn">설정 열기</button></div>
+        <div class="nat-row"><span>배민 알림 읽기</span><b id="natListen"></b><button type="button" class="ghost" id="natListenBtn">허용하러 가기</button></div>
+        <p class="hint">‘배민 알림 읽기’는 배민커넥트 앱 알림만 봐요. 다른 앱 알림은 읽지도 저장하지도 않아요.</p>
+        <label class="chk"><input type="checkbox" id="natShowBar"> 알림바에 카운터 띄우기 (+1 버튼, 운행 시간)</label>
+        <label class="chk"><input type="checkbox" id="natAuto"> 배민 ‘배달 완료’ 알림이 오면 자동으로 +1</label>
+        <details id="natLearn">
+          <summary>최근 배민 알림 기록 (자동 인식 확인용)</summary>
+          <p class="hint">자동으로 안 세지거나 잘못 세지면, 이 목록을 캡처해서 Claude에게 보내주세요.</p>
+          <ul id="natLearnList"></ul>
+          <button type="button" class="ghost" id="natLearnClear">기록 지우기</button>
+        </details>
+      </div>
   <p class="status" id="status">불러오는 중…</p>
 </dialog>
 <script>
 (() => {
   const CATS = ["주유","오토바이 정비","보험·리스","장비","통신비","식비·카페","부모님께","쇼핑·여가","기타"];
   const $ = id => document.getElementById(id);
+  // 안드로이드 앱(v2 이상) 안에서 열리면 앱 기능에 연결돼요. 브라우저에서는 null.
+  const NATIVE = window.RiderNative || null;
   const won = n => (Math.round(n)||0).toLocaleString("ko-KR") + "원";
   const pad = n => String(n).padStart(2,"0");
   const ymd = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
@@ -489,8 +516,48 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("bkNote").textContent = t;
     $("shopIn").placeholder = SHOP();
     document.querySelectorAll(".shop-name").forEach(el => el.textContent = SHOP());
+    if(NATIVE) try{ if(NATIVE.getPref("shopName") !== SHOP()) NATIVE.setPref("shopName", SHOP()); }catch(e){}
+    renderNative();
+  }
+
+  // ---------- 안드로이드 앱 설정 (알림바 · 자동 카운트) ----------
+  function renderNative(){
+    if(!NATIVE) return;
+    $("natBox").hidden = false;
+    let st = {}; try{ st = JSON.parse(NATIVE.status()); }catch(e){}
+    $("natNotif").textContent = st.notif ? "켜짐" : "꺼짐";
+    $("natNotif").className = st.notif ? "c-in" : "c-out";
+    $("natNotifBtn").hidden = !!st.notif;
+    $("natListen").textContent = st.listener ? "허용됨" : "허용 안 됨";
+    $("natListen").className = st.listener ? "c-in" : "c-out";
+    $("natListenBtn").hidden = !!st.listener;
+    $("natShowBar").checked = !!st.showBar;
+    $("natAuto").checked = !!st.autoCount;
+    let items = []; try{ items = JSON.parse(NATIVE.learnJson()); }catch(e){}
+    $("natLearnList").innerHTML = items.length
+      ? items.slice().reverse().map(x => { const d = new Date(x.t);
+          return `<li><small>${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}${x.counted ? " · <b class=\"c-in\">+1 셌음</b>" : x.matched ? " · 완료로 봤지만 중복이라 안 셈" : ""}</small>${esc(x.title)}${x.text ? " — " + esc(x.text) : ""}</li>`; }).join("")
+      : `<li class="empty">아직 받은 배민 알림이 없어요.</li>`;
+  }
+  if(NATIVE){
+    $("natNotifBtn").onclick = () => NATIVE.openNotifSettings();
+    $("natListenBtn").onclick = () => NATIVE.openListenerSettings();
+    $("natShowBar").onchange = e => { NATIVE.setPref("showBar", e.target.checked ? "1" : "0"); renderNative(); };
+    $("natAuto").onchange = e => { NATIVE.setPref("autoCount", e.target.checked ? "1" : "0"); renderNative(); renderAutoHint(); };
+    $("natLearnClear").onclick = () => { NATIVE.clearLearn(); renderNative(); };
+    // 설정 화면에 갔다가 돌아오면 상태 다시 읽기
+    window.onNativeResume = () => { renderNative(); if(typeof renderAutoHint === "function") renderAutoHint(); };
   }
   $("bkSave").onclick = () => {
+    const fname = "라이더가계부-백업-" + ymd(new Date()) + ".json";
+    if(NATIVE){
+      let err = "알 수 없는 오류";
+      try{ err = NATIVE.saveFile(fname, backupJSON()); }catch(e){}
+      if(err){ $("bkMsg").textContent = "백업 파일을 저장하지 못했어요: " + err; return; }
+      settings = {...settings, lastBackup: Date.now()}; saveLocal(); renderBackup();
+      $("bkMsg").textContent = "폰의 ‘다운로드’ 폴더에 " + fname + " 로 저장했어요.";
+      return;
+    }
     const blob = new Blob([backupJSON()], {type:"application/json"});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -864,11 +931,21 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 
   // ---------- 배달 카운터 ----------
   // 근무 단위로 셉니다: 자정을 넘겨도 첫 배달을 누른 날짜로 묶여요.
+  // 안드로이드 앱 안에서는 카운터를 폰(앱)이 들고 있어요: 알림바 +1, 배민 알림 자동 카운트와 같은 숫자를 봐요.
   const CKEY = "rider-counter-v1";
-  let ctr = {date:"", log:[]};   // log: [{s:"b"|"s", t:ms}]
-  try{ const c = JSON.parse(localStorage.getItem(CKEY) || "null"); if(c && Array.isArray(c.log)) ctr = c; }catch(e){}
+  let ctr = {date:"", log:[]};   // log: [{s:"b"|"s", t:ms, a:자동}]
+  const nativeCtr = () => { try{ const c = JSON.parse(NATIVE.counterJson()); if(c && Array.isArray(c.log)) ctr = c; }catch(e){} };
+  if(NATIVE) nativeCtr();
+  else try{ const c = JSON.parse(localStorage.getItem(CKEY) || "null"); if(c && Array.isArray(c.log)) ctr = c; }catch(e){}
   let fromCounter = "";          // 빠른 입력이 카운터 숫자를 가져왔으면 "baemin" / "shop"
-  const saveCtr = () => { try{ localStorage.setItem(CKEY, JSON.stringify(ctr)); }catch(e){} };
+  const saveCtr = () => { if(NATIVE) return; try{ localStorage.setItem(CKEY, JSON.stringify(ctr)); }catch(e){} };
+  // 카운터 바꾸기: 앱이면 앱에 맡기고 결과를 다시 읽어요
+  function ctrOp(op, arg){
+    // 안드로이드 쪽 함수는 인자 개수까지 맞아야 불려요
+    if(NATIVE){ try{ arg === undefined ? NATIVE[op]() : NATIVE[op](arg); }catch(e){} nativeCtr(); renderCtr(); return true; }
+    return false;
+  }
+  window.onNativeCounter = c => { if(c && Array.isArray(c.log)){ ctr = c; renderCtr(); } };
   const ctrCount = s => ctr.log.filter(x => x.s === s).length;
   const ctrHours = () => {
     if(!ctr.log.length) return 0;
@@ -883,32 +960,49 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(has){
       const f = new Date(ctr.log[0].t), mins = Math.round((Date.now() - ctr.log[0].t) / 60000);
       const dur = mins >= 60 ? `${Math.floor(mins/60)}시간 ${mins%60}분` : `${mins}분`;
-      $("ctrSince").textContent = `${md(ctr.date)} ${pad(f.getHours())}:${pad(f.getMinutes())} 첫 배달부터 · ${dur}`;
+      const autoN = ctr.log.filter(x => x.a).length;
+      $("ctrSince").textContent = `${md(ctr.date)} ${pad(f.getHours())}:${pad(f.getMinutes())} 첫 배달부터 · ${dur}` + (autoN ? ` · 자동 ${autoN}건` : "");
     } else $("ctrSince").textContent = "배달을 끝낼 때마다 눌러주세요";
+    renderAutoHint();
+  }
+  function renderAutoHint(){
+    const el = $("ctrAuto"); if(!el) return;
+    if(!NATIVE){ el.hidden = true; return; }
+    let st = {}; try{ st = JSON.parse(NATIVE.status()); }catch(e){}
+    el.hidden = false;
+    el.textContent = !st.autoCount ? "배민 자동 카운트가 꺼져 있어요. ⚙ 메뉴에서 켤 수 있어요."
+      : st.listener ? "배민커넥트 ‘배달 완료’ 알림이 오면 자동으로 +1 해요. 알림바에서도 +1을 누를 수 있어요."
+      : "⚙ 메뉴에서 ‘배민 알림 읽기’를 허용하면 배달 완료 때 자동으로 세요.";
   }
   function tap(s){
-    if(!ctr.log.length) ctr.date = ymd(new Date());
-    ctr.log.push({s, t: Date.now()});
-    saveCtr(); renderCtr();
+    if(!ctrOp("tap", s)){
+      if(!ctr.log.length) ctr.date = ymd(new Date());
+      ctr.log.push({s, t: Date.now()});
+      saveCtr(); renderCtr();
+    }
     if(navigator.vibrate) try{ navigator.vibrate(15); }catch(e){}
     const el = s === "b" ? $("ctrBm") : $("ctrShopN");
     el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
   }
   $("ctrPlus").onclick = () => tap("b");
   $("ctrShop").onclick = () => tap("s");
-  $("ctrUndo").onclick = () => { ctr.log.pop(); if(!ctr.log.length) ctr.date = ""; saveCtr(); renderCtr(); };
+  $("ctrUndo").onclick = () => { if(ctrOp("undo")) return; ctr.log.pop(); if(!ctr.log.length) ctr.date = ""; saveCtr(); renderCtr(); };
   $("ctrReset").onclick = () => {
     const b = $("ctrReset");
     if(!b.classList.contains("arm")){ b.classList.add("arm"); b.textContent = "정말 초기화"; setTimeout(() => { b.classList.remove("arm"); b.textContent = "초기화"; }, 3000); return; }
-    ctr = {date:"", log:[]}; saveCtr(); renderCtr(); b.classList.remove("arm"); b.textContent = "초기화";
+    if(!ctrOp("reset")){ ctr = {date:"", log:[]}; saveCtr(); renderCtr(); }
+    b.classList.remove("arm"); b.textContent = "초기화";
   };
   // 이 기록이 카운터에서 온 것이면, 저장 후 그 수입처 숫자를 0으로
   function ctrAfterSave(e){
     if(!fromCounter || e.type !== "in" || e.src !== fromCounter || e.date !== ctr.date) { fromCounter = ""; return ""; }
     const code = fromCounter === "shop" ? "s" : "b";
-    ctr.log = ctr.log.filter(x => x.s !== code);
-    if(!ctr.log.length) ctr.date = "";
-    fromCounter = ""; saveCtr(); renderCtr();
+    fromCounter = "";
+    if(!ctrOp("clear", code)){
+      ctr.log = ctr.log.filter(x => x.s !== code);
+      if(!ctr.log.length) ctr.date = "";
+      saveCtr(); renderCtr();
+    }
     return " 카운터도 정리했어요.";
   }
 
