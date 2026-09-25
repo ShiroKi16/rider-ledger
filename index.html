@@ -440,7 +440,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div class="nat-row"><span>배민 알림 읽기</span><b id="natListen"></b><button type="button" class="ghost" id="natListenBtn">허용하러 가기</button></div>
         <p class="hint">‘배민 알림 읽기’는 배민커넥트 앱 알림만 봐요. 다른 앱 알림은 읽지도 저장하지도 않아요.</p>
         <label class="chk"><input type="checkbox" id="natShowBar"> 알림바에 카운터 띄우기 (+1 버튼, 운행 시간)</label>
-        <label class="chk"><input type="checkbox" id="natAuto"> 배민 ‘배달 완료’ 알림이 오면 자동으로 +1</label>
+        <label class="chk"><input type="checkbox" id="natAuto"> 배민 알림이 오면 자동으로 +1</label>
+        <label for="natCountOn">무슨 알림으로 셀까요?
+          <select id="natCountOn">
+            <option value="assign">신규배달 배정 알림 (“새로운 배달이 배정되었습니다”)</option>
+            <option value="done">배달 완료 알림 (배민이 보낼 때만)</option>
+          </select>
+        </label>
+        <p class="hint">배민커넥트는 지금 배달 완료 알림을 따로 보내지 않아서, 배정 알림으로 세는 게 맞아요. 배정됐다가 취소되면 ‘되돌리기’를 눌러주세요.</p>
         <details id="natLearn">
           <summary>최근 배민 알림 기록 (자동 인식 확인용)</summary>
           <p class="hint">자동으로 안 세지거나 잘못 세지면, 이 목록을 캡처해서 Claude에게 보내주세요.</p>
@@ -533,11 +540,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natListenBtn").hidden = !!st.listener;
     $("natShowBar").checked = !!st.showBar;
     $("natAuto").checked = !!st.autoCount;
+    $("natCountOn").value = st.countOn || "assign";
+    $("natCountOn").disabled = !st.autoCount;
     let items = []; try{ items = JSON.parse(NATIVE.learnJson()); }catch(e){}
     $("natLearnList").innerHTML = items.length
       ? items.slice().reverse().map(x => { const d = new Date(x.t);
           const kind = x.ongoing ? "계속 떠 있는 알림" : "한 번 뜨는 알림";
-          const res = x.counted ? " · <b class=\"c-in\">+1 셌음</b>" : x.matched ? " · 완료 문구 있음 · 안 셈" : "";
+          const res = x.counted ? " · <b class=\"c-in\">+1 셌음</b>" : x.matched ? " · 세는 문구 있음 · 중복이라 안 셈" : "";
           return `<li><small>${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())} · ${kind}${res}${x.pkg ? " · " + esc(x.pkg) : ""}</small>${esc(x.title)}${x.text ? " — " + esc(x.text) : ""}</li>`; }).join("")
       : `<li class="empty">아직 받은 배민 알림이 없어요.</li>`;
   }
@@ -546,6 +555,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natListenBtn").onclick = () => NATIVE.openListenerSettings();
     $("natShowBar").onchange = e => { NATIVE.setPref("showBar", e.target.checked ? "1" : "0"); renderNative(); };
     $("natAuto").onchange = e => { NATIVE.setPref("autoCount", e.target.checked ? "1" : "0"); renderNative(); renderAutoHint(); };
+    $("natCountOn").onchange = e => { NATIVE.setPref("countOn", e.target.value); renderNative(); renderAutoHint(); };
     $("natLearnClear").onclick = () => { NATIVE.clearLearn(); renderNative(); };
     // 설정 화면에 갔다가 돌아오면 상태 다시 읽기
     window.onNativeResume = () => { renderNative(); if(typeof renderAutoHint === "function") renderAutoHint(); };
@@ -972,9 +982,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(!NATIVE){ el.hidden = true; return; }
     let st = {}; try{ st = JSON.parse(NATIVE.status()); }catch(e){}
     el.hidden = false;
+    const what = st.countOn === "done" ? "‘배달 완료’ 알림" : "‘신규배달’ 배정 알림";
     el.textContent = !st.autoCount ? "배민 자동 카운트가 꺼져 있어요. ⚙ 메뉴에서 켤 수 있어요."
-      : st.listener ? "배민커넥트 ‘배달 완료’ 알림이 오면 자동으로 +1 해요. 알림바에서도 +1을 누를 수 있어요."
-      : "⚙ 메뉴에서 ‘배민 알림 읽기’를 허용하면 배달 완료 때 자동으로 세요.";
+      : st.listener ? `배민커넥트 ${what}이 오면 자동으로 +1 해요. 배정이 취소되면 ‘되돌리기’를 눌러주세요.`
+      : `⚙ 메뉴에서 ‘배민 알림 읽기’를 허용하면 ${what}으로 자동으로 세요.`;
   }
   function tap(s){
     if(!ctrOp("tap", s)){
