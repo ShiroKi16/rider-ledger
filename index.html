@@ -917,22 +917,23 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 // 오프라인 실행을 위한 서비스 워커
 if("serviceWorker" in navigator){
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").then(reg => {
-      const showUpd = () => { document.getElementById("updBar").hidden = false; };
-      document.getElementById("updBtn").onclick = () => { if(reg.waiting) reg.waiting.postMessage("skipWaiting"); else location.reload(); };
-      if(reg.waiting && navigator.serviceWorker.controller) showUpd();
+    navigator.serviceWorker.register("sw.js", {updateViaCache: "none"}).then(reg => {
+      if(reg.waiting) reg.waiting.postMessage("skipWaiting");
       // 앱을 다시 볼 때마다 새 버전이 있는지 확인
       document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") reg.update().catch(()=>{}); });
-      reg.addEventListener("updatefound", () => {
-        const w = reg.installing;
-        w && w.addEventListener("statechange", () => {
-          if(w.state === "installed" && navigator.serviceWorker.controller) document.getElementById("updBar").hidden = false;
-        });
-      });
     }).catch(() => {});
   });
+  // 새 버전이 적용되면 자동으로 새로고침. 기록을 적는 중이면 막대로 알려주고 기다림
+  const typing = () => ["fAmt","fMemo","fCnt","fHrs","goalIn","shopIn"].some(id => { const el = document.getElementById(id); return el && el.value; })
+    || document.getElementById("menu").open;
   let reloaded = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => { if(!reloaded){ reloaded = true; location.reload(); } });
+  const hadController = !!navigator.serviceWorker.controller; // 처음 설치할 때는 새로고침 안 함
+  document.getElementById("updBtn").onclick = () => location.reload();
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if(reloaded || !hadController) return;
+    if(typing()){ document.getElementById("updBar").hidden = false; return; }
+    reloaded = true; location.reload();
+  });
 }
 </script>
 </body>
