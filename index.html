@@ -183,6 +183,29 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .bk .inline input{flex:1;min-width:0}
 .ghost,.icon-btn{white-space:nowrap}
 
+/* ---------- 배달 카운터 · 빠른 입력 ---------- */
+.ctr{display:grid;gap:12px}
+.ctr-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ctr-h h2{margin:0}
+.ctr-h small{color:var(--muted);font-size:12.5px}
+.ctr-main{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.ctr-num{display:grid;line-height:1}
+.ctr-num b{font-family:var(--display);font-weight:400;font-size:64px}
+.ctr-num span{color:var(--muted);font-size:13px;margin-top:6px}
+.ctr-num b.bump{animation:bump .18s ease-out}
+@keyframes bump{from{transform:scale(1.15)}to{transform:none}}
+.ctr-plus{flex:0 0 auto;width:132px;height:108px;border:0;border-radius:22px;background:var(--accent);color:#1C2326;font-family:var(--display);font-size:44px;line-height:1;display:grid;place-content:center;gap:4px;box-shadow:0 3px 0 var(--accent-ink);touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.ctr-plus small{font-family:var(--body);font-size:13px;font-weight:700}
+.ctr-plus:active{transform:translateY(2px);box-shadow:0 1px 0 var(--accent-ink)}
+.ctr-sub{display:flex;gap:8px;flex-wrap:wrap}
+.ctr-sub .ghost{touch-action:manipulation}
+.ctr-sub .ghost b{margin-left:2px}
+.ctr-done{width:100%;padding:12px}
+button:disabled{opacity:.45;cursor:default}
+#ctrReset.arm{background:var(--out);color:#fff;border-color:var(--out)}
+.quick{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.quick button{border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent-ink);border-radius:999px;padding:7px 14px;font-weight:700;font-size:14px}
+
 /* ---------- app shell ---------- */
 .app{max-width:1040px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
 .top-r{display:flex;align-items:center;gap:8px}
@@ -256,8 +279,27 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 
   <main class="pages" id="pages">
     <div class="page" id="pg-add">
+      <section class="panel ctr" aria-labelledby="ctrH">
+        <div class="ctr-h"><h2 id="ctrH">배달 카운터</h2><small id="ctrSince">배달을 끝낼 때마다 눌러주세요</small></div>
+        <div class="ctr-main">
+          <div class="ctr-num"><b id="ctrBm" class="num">0</b><span>배민 건</span></div>
+          <button type="button" class="ctr-plus" id="ctrPlus" aria-label="배민 배달 1건 추가">+1<small>배민</small></button>
+        </div>
+        <div class="ctr-sub">
+          <button type="button" class="ghost" id="ctrShop">+1 <span class="shop-name">가게</span> <b class="num" id="ctrShopN">0</b></button>
+          <button type="button" class="ghost" id="ctrUndo" disabled>되돌리기</button>
+          <button type="button" class="ghost" id="ctrReset" disabled>초기화</button>
+        </div>
+        <button type="button" class="ghost primary ctr-done" id="ctrDone" disabled>퇴근 정리 · 금액만 적으면 끝</button>
+      </section>
+
       <section class="panel" aria-labelledby="addH">
         <h2 id="addH">기록하기</h2>
+        <div class="quick" role="group" aria-label="빠른 입력">
+          <button type="button" data-q="bm">오늘 배민</button>
+          <button type="button" data-q="shop">오늘 <span class="shop-name">가게</span></button>
+          <button type="button" data-q="fuel">주유</button>
+        </div>
         <div class="tabs" role="tablist">
           <button type="button" role="tab" id="tabIn" class="t-in" aria-selected="true">수입</button>
           <button type="button" role="tab" id="tabOut" class="t-out" aria-selected="false">지출</button>
@@ -820,6 +862,87 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   fmtInput($("fAmt")); fmtInput($("goalIn"));
   $("fDate").value = today;
 
+  // ---------- 배달 카운터 ----------
+  // 근무 단위로 셉니다: 자정을 넘겨도 첫 배달을 누른 날짜로 묶여요.
+  const CKEY = "rider-counter-v1";
+  let ctr = {date:"", log:[]};   // log: [{s:"b"|"s", t:ms}]
+  try{ const c = JSON.parse(localStorage.getItem(CKEY) || "null"); if(c && Array.isArray(c.log)) ctr = c; }catch(e){}
+  let fromCounter = "";          // 빠른 입력이 카운터 숫자를 가져왔으면 "baemin" / "shop"
+  const saveCtr = () => { try{ localStorage.setItem(CKEY, JSON.stringify(ctr)); }catch(e){} };
+  const ctrCount = s => ctr.log.filter(x => x.s === s).length;
+  const ctrHours = () => {
+    if(!ctr.log.length) return 0;
+    const h = (Date.now() - ctr.log[0].t) / 3600000;
+    return Math.max(0.5, Math.round(h * 2) / 2);
+  };
+  function renderCtr(){
+    const b = ctrCount("b"), s = ctrCount("s"), has = ctr.log.length > 0;
+    $("ctrBm").textContent = b;
+    $("ctrShopN").textContent = s;
+    $("ctrUndo").disabled = !has; $("ctrReset").disabled = !has; $("ctrDone").disabled = !has;
+    if(has){
+      const f = new Date(ctr.log[0].t), mins = Math.round((Date.now() - ctr.log[0].t) / 60000);
+      const dur = mins >= 60 ? `${Math.floor(mins/60)}시간 ${mins%60}분` : `${mins}분`;
+      $("ctrSince").textContent = `${md(ctr.date)} ${pad(f.getHours())}:${pad(f.getMinutes())} 첫 배달부터 · ${dur}`;
+    } else $("ctrSince").textContent = "배달을 끝낼 때마다 눌러주세요";
+  }
+  function tap(s){
+    if(!ctr.log.length) ctr.date = ymd(new Date());
+    ctr.log.push({s, t: Date.now()});
+    saveCtr(); renderCtr();
+    if(navigator.vibrate) try{ navigator.vibrate(15); }catch(e){}
+    const el = s === "b" ? $("ctrBm") : $("ctrShopN");
+    el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
+  }
+  $("ctrPlus").onclick = () => tap("b");
+  $("ctrShop").onclick = () => tap("s");
+  $("ctrUndo").onclick = () => { ctr.log.pop(); if(!ctr.log.length) ctr.date = ""; saveCtr(); renderCtr(); };
+  $("ctrReset").onclick = () => {
+    const b = $("ctrReset");
+    if(!b.classList.contains("arm")){ b.classList.add("arm"); b.textContent = "정말 초기화"; setTimeout(() => { b.classList.remove("arm"); b.textContent = "초기화"; }, 3000); return; }
+    ctr = {date:"", log:[]}; saveCtr(); renderCtr(); b.classList.remove("arm"); b.textContent = "초기화";
+  };
+  // 이 기록이 카운터에서 온 것이면, 저장 후 그 수입처 숫자를 0으로
+  function ctrAfterSave(e){
+    if(!fromCounter || e.type !== "in" || e.src !== fromCounter || e.date !== ctr.date) { fromCounter = ""; return ""; }
+    const code = fromCounter === "shop" ? "s" : "b";
+    ctr.log = ctr.log.filter(x => x.s !== code);
+    if(!ctr.log.length) ctr.date = "";
+    fromCounter = ""; saveCtr(); renderCtr();
+    return " 카운터도 정리했어요.";
+  }
+
+  // ---------- 빠른 입력 ----------
+  function pickSrc(v){ const b = $("srcChips").querySelector(`[data-src="${v}"]`); if(b) b.click(); }
+  function quick(q){
+    fromCounter = "";
+    $("fAmt").value = ""; $("fCnt").value = ""; $("fHrs").value = ""; $("fMemo").value = "";
+    if(q === "fuel"){
+      setMode("out");
+      const c = [...$("chips").children].find(x => x.textContent === "주유"); if(c) c.click();
+      $("fDate").value = today;
+    } else {
+      const s = q === "shop" ? "shop" : "baemin", code = q === "shop" ? "s" : "b";
+      pickSrc(s);           // 수입 탭으로 바꾸고 수입처 선택
+      const n = ctrCount(code);
+      $("fDate").value = n ? ctr.date : today;
+      $("fAcct").value = payoutId();
+      if(n){
+        $("fCnt").value = n;
+        if(s === "baemin") $("fHrs").value = ctrHours();
+        fromCounter = s;
+        $("toast").textContent = `카운터에서 ${n}건${s==="baemin" ? `, ${ctrHours()}시간` : ""}을 가져왔어요. 금액만 적어주세요.`;
+      } else $("toast").textContent = "";
+    }
+    $("fAmt").focus();
+    $("fAmt").scrollIntoView({block:"center", behavior:"smooth"});
+  }
+  document.querySelector(".quick").onclick = e => { const b = e.target.closest("button[data-q]"); if(b) quick(b.dataset.q); };
+  $("ctrDone").onclick = () => quick(ctrCount("b") ? "bm" : "shop");
+  renderCtr();
+  // 앱을 다시 열면 경과 시간 갱신
+  document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") renderCtr(); });
+
   $("form").addEventListener("submit", async ev => {
     ev.preventDefault();
     const amount = parseMoney($("fAmt").value);
@@ -841,7 +964,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     view = m;
     render();
     $("fAmt").value = ""; $("fCnt").value = ""; $("fHrs").value = ""; $("fMemo").value = "";
-    $("toast").textContent = {in:"수입 ",out:"지출 ",x:"이체 "}[mode] + won(amount) + " 저장했어요.";
+    $("toast").textContent = {in:"수입 ",out:"지출 ",x:"이체 "}[mode] + won(amount) + " 저장했어요." + ctrAfterSave(e);
     await persistMonth(m);
   });
 
