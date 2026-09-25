@@ -188,10 +188,10 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .nat-row span{flex:1}
 .chk{display:flex;align-items:center;gap:10px;color:var(--ink);font-size:14px;font-weight:500}
 .chk input{width:20px;height:20px;accent-color:var(--accent-ink)}
-#natLearn summary{cursor:pointer;font-size:14px;font-weight:600}
-#natLearnList{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px;font-size:13px;max-height:260px;overflow-y:auto}
-#natLearnList li{border-bottom:1px solid var(--line);padding-bottom:6px;overflow-wrap:anywhere}
-#natLearnList small{display:block;color:var(--muted)}
+#natScanBox summary,#natLearn summary{cursor:pointer;font-size:14px;font-weight:600}
+#natScanList,#natLearnList{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px;font-size:13px;max-height:260px;overflow-y:auto}
+#natScanList li,#natLearnList li{border-bottom:1px solid var(--line);padding-bottom:6px;overflow-wrap:anywhere}
+#natScanList small,#natLearnList small{display:block;color:var(--muted)}
 
 /* ---------- 배달 카운터 · 빠른 입력 ---------- */
 .ctr{display:grid;gap:12px}
@@ -451,6 +451,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           </select>
         </label>
         <p class="hint">배민커넥트는 배달 완료 알림을 따로 보내지 않아요. 화면 감지를 켜면 ‘배달완료’를 누를 때 세고, 안 켜면 배정 알림으로 세요(배정이 취소되면 ‘되돌리기’).</p>
+        <label class="chk"><input type="checkbox" id="natScan"> 배민 화면 금액 수집 (수입 자동 읽기 준비용)</label>
+        <details id="natScanBox">
+          <summary>모은 금액 (<span id="natScanN">0</span>)</summary>
+          <p class="hint">배민커넥트 화면의 금액과 바로 앞 이름표만 모아요. 배달완료 직후 화면과 수입 화면을 한 번씩 열어본 뒤, 이 목록을 캡처해서 Claude에게 보내주세요.</p>
+          <ul id="natScanList"></ul>
+          <button type="button" class="ghost" id="natScanClear">목록 지우기</button>
+        </details>
         <details id="natLearn">
           <summary>최근 배민 알림 기록 (자동 인식 확인용)</summary>
           <p class="hint">자동으로 안 세지거나 잘못 세지면, 이 목록을 캡처해서 Claude에게 보내주세요.</p>
@@ -548,6 +555,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natShowBar").checked = !!st.showBar;
     $("natAuto").checked = !!st.autoCount;
     $("natCountOn").value = st.countOn || "assign";
+    $("natScan").checked = !!st.scanMode;
+    $("natScan").disabled = !st.a11y;
+    let scans = []; try{ scans = NATIVE.scanJson ? JSON.parse(NATIVE.scanJson()) : []; }catch(e){}
+    $("natScanN").textContent = scans.length;
+    $("natScanList").innerHTML = scans.length
+      ? scans.slice().reverse().map(x => { const d = new Date(x.t);
+          return `<li><small>${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())} · ${esc(x.screen || "화면")}</small>${(x.items||[]).map(esc).join("<br>")}</li>`; }).join("")
+      : `<li class="empty">${st.a11y ? (st.scanMode ? "배민커넥트 화면을 열면 여기에 금액이 모여요." : "위 스위치를 켜면 모으기 시작해요.") : "먼저 ‘배민 화면 감지’를 켜주세요."}</li>`;
     $("natCountOn").disabled = !st.autoCount;
     let items = []; try{ items = JSON.parse(NATIVE.learnJson()); }catch(e){}
     $("natLearnList").innerHTML = items.length
@@ -563,6 +578,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natA11yBtn").onclick = () => { try{ NATIVE.openA11ySettings(); }catch(e){ $("natA11yHelp").textContent = "이 기능은 가계부 앱 v2.3 이상에서 돼요. 새 APK를 설치해 주세요."; } };
     $("natShowBar").onchange = e => { NATIVE.setPref("showBar", e.target.checked ? "1" : "0"); renderNative(); };
     $("natAuto").onchange = e => { NATIVE.setPref("autoCount", e.target.checked ? "1" : "0"); renderNative(); renderAutoHint(); };
+    $("natScan").onchange = e => { NATIVE.setPref("scanMode", e.target.checked ? "1" : "0"); renderNative(); };
+    $("natScanClear").onclick = () => { if(NATIVE.clearScan) NATIVE.clearScan(); renderNative(); };
     $("natCountOn").onchange = e => { NATIVE.setPref("countOn", e.target.value); renderNative(); renderAutoHint(); };
     $("natLearnClear").onclick = () => { NATIVE.clearLearn(); renderNative(); };
     // 설정 화면에 갔다가 돌아오면 상태 다시 읽기
