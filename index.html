@@ -193,6 +193,10 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .bg-em{margin-bottom:6px}
 .bg-split{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
 .sp-list{display:grid;gap:2px}
+.fx-list{display:grid;gap:6px;background:var(--sunk);border-radius:10px;padding:12px;margin:4px 0 8px}
+.fx-h{display:flex;justify-content:space-between;gap:8px;font-size:14px}
+.fx-chk span:nth-of-type(1){flex:1}
+.fx-chk small{color:var(--muted);font-size:11.5px}
 .sp-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
 .sp-row small{display:block;color:var(--muted);font-size:12px}
 .sp-row b{font-weight:600}
@@ -395,7 +399,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div id="bgBody"></div>
       </section>
 
-      <section class="panel" aria-labelledby="gH">
+      <section class="panel" id="goalPanel" aria-labelledby="gH">
         <h2 id="gH">이번 달 저축 목표</h2>
         <div class="goal-head"><span id="goalTxt" class="num"></span><span id="goalPct" class="num" style="color:var(--accent-ink);font-weight:600"></span></div>
         <div class="bar"><i id="goalBar" style="width:0"></i></div>
@@ -922,9 +926,30 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   const curMonth = () => ymd(new Date()).slice(0,7);
   const monthList = () => months[curMonth()] || [];
   const fixedTotal = () => (BG().fixed || []).reduce((a,f) => a + (f.amount||0), 0);
-  // 이번 달 이미 낸 고정지출 (통신비·보험·렌트·구독으로 적은 지출)
-  const FIXED_CATS = ["통신비","보험·렌트","구독","보험·리스"];
-  const fixedPaid = () => monthList().filter(e => e.type === "out" && FIXED_CATS.includes(e.cat)).reduce((a,e) => a + e.amount, 0);
+  // 고정지출을 이번 달에 냈는지: 직접 체크했거나, 그 항목에 맞는 분류로 지출을 적었으면 낸 걸로 봐요.
+  // 은행과 연결돼 있지 않아서 앱이 스스로 알 수는 없어요.
+  function fixedCat(name){
+    if(/통신|휴대폰|핸드폰|폰/.test(name)) return "통신비";
+    if(/보험|렌트|리스|할부/.test(name)) return "보험·렌트";
+    if(/구독|넷플|유튜브|멤버십/.test(name)) return "구독";
+    return "";
+  }
+  const paidChecks = () => ((BG().paid || {})[curMonth()]) || [];
+  function fixedStatus(){
+    const outs = monthList().filter(e => e.type === "out");
+    const used = new Set(); // 지출 하나가 두 항목에 겹쳐 쓰이지 않게
+    return (BG().fixed || []).map(f => {
+      const manual = paidChecks().includes(f.name);
+      let auto = false;
+      const cat = fixedCat(f.name);
+      if(!manual && cat){
+        const hit = outs.find(e => !used.has(e.id) && e.cat === cat);
+        if(hit){ used.add(hit.id); auto = true; }
+      }
+      return {...f, paid: manual || auto, manual, auto};
+    });
+  }
+  const fixedPaid = () => fixedStatus().filter(f => f.paid).reduce((a,f) => a + (f.amount||0), 0);
   const fixedNeed = () => Math.max(0, fixedTotal() - fixedPaid());
   const xferTo = id => monthList().filter(e => e.type === "xfer" && e.to === id).reduce((a,e) => a + e.amount, 0);
   const floor1k = v => Math.max(0, Math.floor(v / 1000) * 1000);
@@ -995,6 +1020,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 
   function renderBudget(){
     const el = $("bgBody"); if(!el) return;
+    $("goalPanel").hidden = !!BG(); // 돈 나누기를 쓰면 예전 "저축 목표" 칸은 숨겨요
     if(!BG() || bgEditing){ el.innerHTML = setupHTML(); return; }
     const b = BG(), r = b.roles, bals = acctBalances();
     const inMonth = monthList().filter(e => e.type === "settle" || (e.type === "in" && e.src === "shop")).reduce((a,e) => a + e.amount, 0);
@@ -1012,7 +1038,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div class="cell"><small>청약 ${won(b.housingMonthly||0)}</small><b>${!b.housingMonthly ? "-" : hsM >= b.housingMonthly ? "넣었어요" : "아직"}</b></div>
       </div>
       <div class="bg-em"><div class="goal-head"><span>비상금 <b class="num">${won(emBal)}</b> / ${won(goal)}</span><span class="num">${Math.round(pct)}%</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>
-      <p class="hint">남은 용돈 <b class="num">${won(alw)}</b> · 고정지출 한 달 ${won(fixedTotal())}${fixedPaid() ? ` 중 ${won(fixedPaid())} 냈어요` : ""}. 통신비·보험·렌트·구독을 지출로 적으면 낸 걸로 쳐요.</p>
+      <p class="hint">남은 용돈 <b class="num">${won(alw)}</b></p>
+      <div class="fx-list">
+        <div class="fx-h"><b>이번 달 고정지출</b><span class="num">${won(fixedPaid())} / ${won(fixedTotal())} 냈어요</span></div>
+        ${fixedStatus().map(f => `<label class="chk fx-chk"><input type="checkbox" data-fx="${esc(f.name)}" ${f.paid ? "checked" : ""} ${f.auto ? "disabled" : ""}>
+          <span>${esc(f.name)}${f.auto ? " <small>(지출 기록으로 확인)</small>" : ""}</span><span class="num">${won(f.amount)}</span></label>`).join("")}
+        <p class="hint">이미 빠져나간 건 체크만 해주세요 (잔액은 안 바뀌어요). 앞으로 통신비·보험·렌트·구독을 지출로 적으면 자동으로 체크돼요.</p>
+      </div>
       <div class="bg-split">
         <h3>정산금 나누기</h3>
         ${splitMsg ? `<p class="toast">${esc(splitMsg)}</p>` : ""}
@@ -1036,6 +1068,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   });
   $("bgBody").addEventListener("change", e => {
     if(e.target.id === "spAmt"){ splitAmt = parseMoney(e.target.value); splitMsg = ""; renderBudget(); }
+    if(e.target.dataset && e.target.dataset.fx){
+      const m = curMonth(), name = e.target.dataset.fx, b = BG();
+      const cur = new Set(((b.paid || {})[m]) || []);
+      e.target.checked ? cur.add(name) : cur.delete(name);
+      // 지난달 체크는 정리하고 이번 달 것만 남겨요
+      settings = {...settings, budget: {...b, paid: {[m]: [...cur]}}};
+      saveLocal(); render();
+    }
   });
   $("bgBody").addEventListener("click", e => {
     const t = e.target;
