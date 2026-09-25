@@ -485,6 +485,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <label for="shopIn"><span>두 번째 수입처 이름 (지금: <b class="shop-name">가게</b>)</span></label>
         <div class="inline"><input type="text" id="shopIn" maxlength="20"><button type="button" class="ghost" id="shopSave">바꾸기</button></div>
       </div>
+      <div class="bk nat" id="cloudBox">
+        <h3>클라우드 동기화 (폰 ↔ PC)</h3>
+        <div id="cloudBody"></div>
+      </div>
       <div class="bk nat" id="natBox" hidden>
         <h3>알림바 카운터 · 배민 자동 카운트</h3>
         <div class="nat-row"><span>알림 보내기 권한</span><b id="natNotif"></b><button type="button" class="ghost" id="natNotifBtn">설정 열기</button></div>
@@ -569,12 +573,177 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     }catch(e){ setStatus("저장된 기록을 읽지 못했어요. 백업 파일이 있으면 불러와 주세요."); }
   }
   function saveLocal(){
-    try{ localStorage.setItem(KEY, JSON.stringify({months, settings})); syncNative(); return true; }
+    try{ localStorage.setItem(KEY, JSON.stringify({months, settings})); syncNative(); cloudPush(); return true; }
     catch(e){ setStatus("저장하지 못했어요. 폰 저장 공간을 확인해 주세요."); return false; }
   }
   function persistMonth(){ if(months) for(const m in months) if(!months[m].length) delete months[m]; saveLocal(); renderBackup(); return Promise.resolve(); }
   function persistSettings(){ saveLocal(); renderBackup(); }
   function setStatus(t){ $("status").textContent = t; }
+
+  // ---------- 클라우드 동기화 (Firebase) ----------
+  // 기록은 폰(이 기기)에 먼저 저장하고, 로그인돼 있으면 바뀐 달·설정만 클라우드에 올려요.
+  // 다른 기기(PC 등)에서 바뀐 건 실시간으로 받아와요. 로그인한 본인 칸(users/{uid})만 읽고 쓸 수 있어요.
+  const FB_CONFIG = {
+    apiKey: "AIzaSyCBLMftFNc1ZoSjtn-mdcFq5E5TayA5i_g",
+    authDomain: "rider-ledger-e5947.firebaseapp.com",
+    projectId: "rider-ledger-e5947",
+    storageBucket: "rider-ledger-e5947.firebasestorage.app",
+    messagingSenderId: "162179930182",
+    appId: "1:162179930182:web:c815db02f27553f5295247"
+  };
+  const FB_VER = "10.12.2";
+  var cloud = {ready: false, loading: null, auth: null, db: null, uid: null, email: "", dev: "", sent: {months: {}, settings: ""},
+    last: 0, err: "", unsub: [], t: 0, merged: false};
+  try{ cloud.dev = localStorage.getItem("rider-device") || ""; if(!cloud.dev){ cloud.dev = "d" + Math.random().toString(36).slice(2, 10); localStorage.setItem("rider-device", cloud.dev); } }catch(e){ cloud.dev = "d" + Date.now().toString(36); }
+
+  function loadScript(src){ return new Promise((ok, no) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); }); }
+  /** Firebase를 필요할 때 불러와요 (인터넷이 없으면 조용히 건너뛰어요) */
+  function cloudInit(){
+    if(cloud.loading) return cloud.loading;
+    const base = "https://www.gstatic.com/firebasejs/" + FB_VER + "/";
+    cloud.loading = loadScript(base + "firebase-app-compat.js")
+      .then(() => Promise.all([loadScript(base + "firebase-auth-compat.js"), loadScript(base + "firebase-firestore-compat.js")]))
+      .then(() => {
+        const app = firebase.initializeApp(FB_CONFIG);
+        cloud.auth = firebase.auth(); cloud.db = firebase.firestore(); cloud.ready = true;
+        cloud.auth.onAuthStateChanged(u => {
+          try{ u ? localStorage.setItem("rider-cloud", "1") : localStorage.removeItem("rider-cloud"); }catch(e){}
+          cloud.unsub.forEach(f => f()); cloud.unsub = []; cloud.merged = false; cloud.sent = {months: {}, settings: ""};
+          cloud.uid = u ? u.uid : null; cloud.email = u ? (u.email || "") : "";
+          if(u) cloudStart(); else renderCloud();
+        });
+      })
+      .catch(() => { cloud.loading = null; cloud.err = "인터넷 연결이 없어서 동기화를 잠시 쉬어요."; renderCloud(); });
+    return cloud.loading;
+  }
+  const userRef = () => cloud.db.collection("users").doc(cloud.uid);
+  const hasSettingsData = s => !!(s && ((s.accounts && s.accounts.length) || s.budget));
+
+  /** 로그인 직후: 클라우드와 이 기기 기록을 합쳐요. 내용이 있는 쪽을 살려요. */
+  async function cloudStart(){
+    renderCloud();
+    try{
+      const [ms, st] = await Promise.all([userRef().collection("months").get(), userRef().collection("meta").doc("settings").get()]);
+      const remoteMonths = {}; ms.forEach(d => { remoteMonths[d.id] = (d.data().entries) || []; });
+      const remoteSet = st.exists ? (st.data().data || null) : null;
+      let changed = false;
+      for(const m in remoteMonths){
+        const r = remoteMonths[m], l = months[m] || [];
+        // 클라우드에 있는 달은 클라우드 기준. 단, 클라우드가 비었고 이 기기에 있으면 이 기기 것을 올려요.
+        if(r.length || !l.length){
+          if(JSON.stringify(r) !== JSON.stringify(l)){ if(r.length) months[m] = r; else delete months[m]; changed = true; }
+          cloud.sent.months[m] = JSON.stringify(r);
+        }
+      }
+      if(hasSettingsData(remoteSet) && !(hasSettingsData(settings) && !hasSettingsData(remoteSet))){
+        if(JSON.stringify(remoteSet) !== JSON.stringify(settings)){ settings = {...settings, ...remoteSet}; changed = true; }
+        cloud.sent.settings = JSON.stringify(settings);
+      }
+      cloud.merged = true;
+      if(changed) applyRemote();
+      cloudPush(true);   // 이 기기에만 있던 것 올리기
+      cloudListen();
+    }catch(e){ cloud.err = "동기화를 시작하지 못했어요: " + (e.code || e.message); renderCloud(); }
+  }
+
+  function cloudListen(){
+    cloud.unsub.push(userRef().collection("months").onSnapshot(snap => {
+      let changed = false;
+      snap.docChanges().forEach(ch => {
+        const d = ch.doc; if(d.metadata.hasPendingWrites || ch.type === "removed") return;
+        const r = d.data().entries || [], s = JSON.stringify(r);
+        if(s === JSON.stringify(months[d.id] || [])){ cloud.sent.months[d.id] = s; return; }
+        if(d.data().by === cloud.dev) return; // 내가 올린 게 되돌아온 것
+        if(r.length) months[d.id] = r; else delete months[d.id];
+        cloud.sent.months[d.id] = s; changed = true;
+      });
+      cloud.last = Date.now();
+      if(changed) applyRemote(); else renderCloud();
+    }, e => { cloud.err = "실시간 동기화가 끊겼어요: " + (e.code || e.message); renderCloud(); }));
+    cloud.unsub.push(userRef().collection("meta").doc("settings").onSnapshot(d => {
+      if(!d.exists || d.metadata.hasPendingWrites) return;
+      const v = d.data(); if(v.by === cloud.dev) return;
+      const s = JSON.stringify(v.data || {});
+      if(s === JSON.stringify(settings)) return;
+      settings = {...settings, ...(v.data || {})}; cloud.sent.settings = JSON.stringify(settings);
+      applyRemote();
+    }));
+  }
+
+  /** 다른 기기에서 온 변경을 이 기기에 저장하고 화면에 반영 (다시 올리지는 않아요) */
+  function applyRemote(){
+    try{ localStorage.setItem(KEY, JSON.stringify({months, settings})); }catch(e){}
+    syncNative();
+    demo = !hasData();
+    try{ render(); renderBackup(); }catch(e){}
+    renderCloud();
+  }
+
+  /** 바뀐 달·설정만 올려요 */
+  function cloudPush(now){
+    if(!cloud.uid || !cloud.merged) return;
+    clearTimeout(cloud.t);
+    cloud.t = setTimeout(() => {
+      const ref = userRef(), batch = cloud.db.batch(), at = Date.now();
+      let n = 0;
+      const keys = new Set([...Object.keys(months), ...Object.keys(cloud.sent.months)]);
+      keys.forEach(m => {
+        const s = JSON.stringify(months[m] || []);
+        if(cloud.sent.months[m] === s) return;
+        if(cloud.sent.months[m] === undefined && s === "[]") return;
+        batch.set(ref.collection("months").doc(m), {entries: JSON.parse(s), updatedAt: at, by: cloud.dev});
+        cloud.sent.months[m] = s; n++;
+      });
+      const ss = JSON.stringify(settings);
+      if(ss !== cloud.sent.settings && hasSettingsData(settings)){
+        batch.set(ref.collection("meta").doc("settings"), {data: JSON.parse(ss), updatedAt: at, by: cloud.dev});
+        cloud.sent.settings = ss; n++;
+      }
+      if(!n) return;
+      batch.commit().then(() => { cloud.last = Date.now(); cloud.err = ""; renderCloud(); })
+        .catch(e => { cloud.err = "올리지 못했어요: " + (e.code || e.message); cloud.sent = {months: {}, settings: ""}; renderCloud(); });
+    }, now ? 0 : 800);
+  }
+
+  const AUTH_MSG = {
+    "auth/invalid-email": "이메일 주소 모양이 아니에요.",
+    "auth/missing-password": "비밀번호를 적어주세요.",
+    "auth/weak-password": "비밀번호는 6자 이상이어야 해요.",
+    "auth/email-already-in-use": "이미 가입된 이메일이에요. [로그인]을 눌러주세요.",
+    "auth/invalid-credential": "이메일이나 비밀번호가 맞지 않아요.",
+    "auth/wrong-password": "비밀번호가 맞지 않아요.",
+    "auth/user-not-found": "가입되지 않은 이메일이에요. [처음이면 가입]을 눌러주세요.",
+    "auth/too-many-requests": "시도가 너무 많아요. 잠시 뒤에 다시 해주세요.",
+    "auth/network-request-failed": "인터넷 연결을 확인해 주세요.",
+    "auth/operation-not-allowed": "Firebase에서 이메일/비밀번호 로그인이 꺼져 있어요."
+  };
+  function renderCloud(){
+    const el = $("cloudBody"); if(!el) return;
+    if(cloud.uid){
+      el.innerHTML = `<p class="hint"><b>${esc(cloud.email)}</b>로 동기화 중이에요.${cloud.last ? " 마지막 동기화 " + new Date(cloud.last).toLocaleTimeString("ko-KR", {hour: "2-digit", minute: "2-digit"}) : ""}</p>
+        ${cloud.err ? `<p class="toast c-out">${esc(cloud.err)}</p>` : ""}
+        <p class="hint">폰과 PC에서 같은 계정으로 로그인하면 기록이 서로 반영돼요. 배달 카운터와 은행 알림은 폰에서만 돼요.</p>
+        <div class="btns"><button type="button" class="ghost" id="cloudOut">로그아웃</button></div>`;
+      return;
+    }
+    el.innerHTML = `<p class="hint">로그인하면 폰과 PC에서 같은 기록을 실시간으로 볼 수 있어요. <b>기록이 있는 폰에서 먼저</b> 로그인해 주세요.</p>
+      <div class="row"><input type="email" id="cloudEmail" autocomplete="username" placeholder="이메일"><input type="password" id="cloudPw" autocomplete="current-password" placeholder="비밀번호 (6자 이상)"></div>
+      ${cloud.err ? `<p class="toast c-out">${esc(cloud.err)}</p>` : ""}
+      <div class="btns"><button type="button" class="ghost primary" id="cloudIn">로그인</button><button type="button" class="ghost" id="cloudUp">처음이면 가입</button></div>`;
+  }
+  $("menu").addEventListener("click", async e => {
+    const id = e.target.id;
+    if(id !== "cloudIn" && id !== "cloudUp" && id !== "cloudOut") return;
+    cloud.err = "";
+    try{
+      await cloudInit();
+      if(!cloud.ready) return;
+      if(id === "cloudOut"){ await cloud.auth.signOut(); return; }
+      const em = $("cloudEmail").value.trim(), pw = $("cloudPw").value;
+      if(id === "cloudIn") await cloud.auth.signInWithEmailAndPassword(em, pw);
+      else await cloud.auth.createUserWithEmailAndPassword(em, pw);
+    }catch(err){ cloud.err = AUTH_MSG[err.code] || ("로그인하지 못했어요: " + (err.code || err.message)); renderCloud(); }
+  });
 
   // 안드로이드 앱에 요약을 넘겨둬요: 앱이 꺼져 있어도 밤에 자동 백업·결제일 알림·주간 리포트를 만들 수 있게
   var syncT = 0;
@@ -1686,6 +1855,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   loadLocal();
   try{ processBank(); }catch(e){}
   syncNative();
+  renderCloud();
+  // 전에 로그인했으면 동기화 다시 연결
+  try{ if(localStorage.getItem("rider-cloud") === "1") cloudInit(); }catch(e){}
   demo = !hasData();
   setStatus("기록은 이 폰 안에만 저장돼요 · 인터넷 없이도 써요");
   render(); renderBackup();

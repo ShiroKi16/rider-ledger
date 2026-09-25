@@ -1,7 +1,7 @@
 // 라이더 가계부 서비스 워커
 // 인터넷이 되면 항상 최신 화면을 받아오고, 인터넷이 없을 때만 저장해 둔 화면을 씁니다.
 // VERSION을 바꾸면 폰에 남아 있는 옛 서비스 워커도 바로 교체돼요.
-const VERSION = "2026-09-25.19";
+const VERSION = "2026-09-25.20";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png"];
@@ -45,8 +45,8 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // 구글 폰트: 한 번 받으면 저장해 두고 오프라인에서도 사용
-  if (url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com") {
+  // 구글 폰트와 Firebase 스크립트(버전이 고정돼 있어요): 한 번 받으면 저장해 두고 오프라인에서도 사용
+  if (url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com" || (url.hostname === "www.gstatic.com" && url.pathname.startsWith("/firebasejs/"))) {
     e.respondWith(
       caches.open(FONTS).then(async c => {
         const hit = await c.match(req);
