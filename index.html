@@ -202,10 +202,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 
 /* ---------- 폰: 탭을 옆으로 넘기는 화면 ---------- */
 @media (max-width:820px){
-  html,body{height:100%}
-  body{padding:0;overflow:hidden}
-  .app{height:100%;height:100dvh;display:flex;flex-direction:column;gap:0}
-  header.top{padding:max(10px, env(safe-area-inset-top)) 16px 8px;align-items:center;flex-wrap:nowrap}
+  body{padding:0 0 calc(64px + env(safe-area-inset-bottom,0px))}
+  .app{display:block}
+  header.top{position:sticky;top:0;z-index:10;background:var(--bg);padding:max(10px, env(safe-area-inset-top)) 16px 8px;align-items:center;flex-wrap:nowrap}
   .brand p{display:none}
   .brand h1{font-size:21px;white-space:nowrap}
   .month span{min-width:84px;font-size:14px}
@@ -213,12 +212,15 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   .icon-btn{width:40px;height:40px}
   .stripe{margin:0 16px 4px;height:4px}
   .upd,.demo{margin:6px 16px 0;position:static}
-  .pages{flex:1;min-height:0;display:flex;gap:0;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain}
-  .pages::-webkit-scrollbar{display:none}
-  .page{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;overflow-y:auto;overscroll-behavior-y:contain;padding:12px 16px 28px;gap:14px}
+  .pages{display:block;overflow-x:hidden;touch-action:pan-y}
+  .page{display:none;padding:12px 16px 28px;gap:14px}
+  .page.active{display:grid}
+  .page.in-l{animation:inL .22s ease-out} .page.in-r{animation:inR .22s ease-out}
+  @keyframes inL{from{transform:translateX(-24px);opacity:.4}to{transform:none;opacity:1}}
+  @keyframes inR{from{transform:translateX(24px);opacity:.4}to{transform:none;opacity:1}}
   .panel{padding:16px}
   .chart svg{min-width:0}
-  .tabbar{display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:10;display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
   .tabbar button{border:0;background:transparent;color:var(--muted);display:grid;justify-items:center;gap:2px;padding:8px 0 10px;font-size:12px;font-weight:600}
   .tabbar button[aria-current="page"]{color:var(--accent-ink)}
   .tabbar button[aria-current="page"] svg{stroke-width:2.5}
@@ -869,25 +871,37 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   $("nextM").onclick = () => shift(1);
 
   // ---------- 폰: 탭 넘기기 ----------
-  const pages = $("pages"), tabBtns = [...document.querySelectorAll("#tabbar button")];
+  // 위아래는 화면 전체가 스크롤되고, 좌우로 밀면 탭이 바뀌어요
+  const pages = $("pages"), pageEls = [...pages.querySelectorAll(".page")], tabBtns = [...document.querySelectorAll("#tabbar button")];
+  const scrollPos = [0,0,0,0];
   let curPage = 0;
-  function markTab(i){
-    if(i === curPage) return; curPage = i;
+  pageEls[0].classList.add("active");
+  function goPage(i){
+    if(i < 0 || i >= pageEls.length || i === curPage) return;
+    scrollPos[curPage] = window.scrollY;
+    const dir = i > curPage ? "in-r" : "in-l";
+    pageEls[curPage].classList.remove("active","in-l","in-r");
+    const el = pageEls[i];
+    el.classList.add("active");
+    if(!window.matchMedia("(prefers-reduced-motion: reduce)").matches){
+      el.classList.remove("in-l","in-r"); void el.offsetWidth; el.classList.add(dir);
+    }
+    curPage = i;
     tabBtns.forEach((b,k) => k===i ? b.setAttribute("aria-current","page") : b.removeAttribute("aria-current"));
+    window.scrollTo(0, scrollPos[i]);
   }
-  tabBtns.forEach(b => b.onclick = () => {
-    const i = Number(b.dataset.i);
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    pages.scrollTo({left: i * pages.clientWidth, behavior: reduce ? "auto" : "smooth"});
-    markTab(i);
-  });
-  let scrollT = 0;
-  pages.addEventListener("scroll", () => {
-    cancelAnimationFrame(scrollT);
-    scrollT = requestAnimationFrame(() => { if(pages.clientWidth) markTab(Math.round(pages.scrollLeft / pages.clientWidth)); });
+  tabBtns.forEach(b => b.onclick = () => goPage(Number(b.dataset.i)));
+  let sx = 0, sy = 0, st = 0, swipeOk = false;
+  pages.addEventListener("touchstart", e => {
+    const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now();
+    // 입력칸, 선택 버튼 줄, 넓은 표 위에서는 밀기로 탭을 바꾸지 않음
+    swipeOk = e.touches.length === 1 && !e.target.closest("input, select, textarea, .chips, .tbl, .pend-list");
   }, {passive:true});
-  // 화면 크기가 바뀌어도 보던 탭 유지
-  window.addEventListener("resize", () => { if(pages.scrollWidth > pages.clientWidth) pages.scrollLeft = curPage * pages.clientWidth; });
+  pages.addEventListener("touchend", e => {
+    if(!swipeOk) return;
+    const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if(Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.6 && Date.now() - st < 800) goPage(curPage + (dx < 0 ? 1 : -1));
+  }, {passive:true});
 
   // ---------- ⚙ 백업 · 설정 메뉴 ----------
   const menu = $("menu");
