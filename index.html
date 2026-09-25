@@ -950,6 +950,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     });
   }
   const fixedPaid = () => fixedStatus().filter(f => f.paid).reduce((a,f) => a + (f.amount||0), 0);
+  // 청약: 이번 달 이체로 넣었거나, "넣었어요"를 체크했으면 넣은 걸로 봐요 (자동이체로 이미 빠져나간 경우)
+  const HOUSING_KEY = "__청약";
+  const housingIn = () => paidChecks().includes(HOUSING_KEY) ? (BG().housingMonthly||0) : xferTo(BG().roles.housing);
   const fixedNeed = () => Math.max(0, fixedTotal() - fixedPaid());
   const xferTo = id => monthList().filter(e => e.type === "xfer" && e.to === id).reduce((a,e) => a + e.amount, 0);
   const floor1k = v => Math.max(0, Math.floor(v / 1000) * 1000);
@@ -959,11 +962,12 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const b = BG(), r = b.roles, fixed = fixedNeed();
     let left = A;
     // 1) 청약: 이번 달 아직 안 넣었으면 먼저
-    const h = Math.min(left, Math.max(0, (b.housingMonthly||0) - xferTo(r.housing)));
+    const h = Math.min(left, Math.max(0, (b.housingMonthly||0) - housingIn()));
     left -= h;
     // 2) 고정지출 몫: 한 달 고정지출을 정산 4번에 나눠 남겨두되, 수입 통장에 이미 충분하면 안 남겨요
     const weekly = Math.ceil(fixedTotal() / 4 / 1000) * 1000;
-    const incBefore = (bals[r.income]||0) - A;
+    // 정산 전 수입 통장 잔액 (직접 적은 금액이 잔액보다 크면 0으로 봐요)
+    const incBefore = Math.max(0, (bals[r.income]||0) - A);
     const reserve = Math.min(left, weekly, Math.max(0, fixed - incBefore));
     left -= reserve;
     // 3) 나머지를 비율대로: 비상금을 다 채우기 전과 후가 달라요
@@ -1026,7 +1030,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const inMonth = monthList().filter(e => e.type === "settle" || (e.type === "in" && e.src === "shop")).reduce((a,e) => a + e.amount, 0);
     const fixed = fixedNeed(), incBal = bals[r.income]||0;
     const emBal = bals[r.emergency]||0, goal = b.emergencyGoal||0, pct = goal ? Math.min(100, emBal / goal * 100) : 0;
-    const svM = xferTo(r.savings), hsM = xferTo(r.housing), alw = bals[r.allowance]||0;
+    const svM = xferTo(r.savings), hsM = housingIn(), alw = bals[r.allowance]||0;
     const sp = splitAmt ? computeSplit(splitAmt, bals) : null;
     const row = (lbl, amt, sub) => `<div class="sp-row"><span>${lbl}${sub ? `<small>${sub}</small>` : ""}</span><b class="num">${won(amt)}</b></div>`;
     const nm = id => acctName(id);
@@ -1040,9 +1044,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       <div class="bg-em"><div class="goal-head"><span>비상금 <b class="num">${won(emBal)}</b> / ${won(goal)}</span><span class="num">${Math.round(pct)}%</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>
       <p class="hint">남은 용돈 <b class="num">${won(alw)}</b></p>
       <div class="fx-list">
-        <div class="fx-h"><b>이번 달 고정지출</b><span class="num">${won(fixedPaid())} / ${won(fixedTotal())} 냈어요</span></div>
+        <div class="fx-h"><b>이번 달 고정지출 · 청약</b><span class="num">${won(fixedPaid())} / ${won(fixedTotal())} 냈어요</span></div>
         ${fixedStatus().map(f => `<label class="chk fx-chk"><input type="checkbox" data-fx="${esc(f.name)}" ${f.paid ? "checked" : ""} ${f.auto ? "disabled" : ""}>
           <span>${esc(f.name)}${f.auto ? " <small>(지출 기록으로 확인)</small>" : ""}</span><span class="num">${won(f.amount)}</span></label>`).join("")}
+        ${b.housingMonthly ? `<label class="chk fx-chk"><input type="checkbox" data-fx="${HOUSING_KEY}" ${hsM >= b.housingMonthly ? "checked" : ""} ${xferTo(r.housing) >= b.housingMonthly ? "disabled" : ""}>
+          <span>청약 (저축)${xferTo(r.housing) >= b.housingMonthly ? " <small>(이체 기록으로 확인)</small>" : ""}</span><span class="num">${won(b.housingMonthly)}</span></label>` : ""}
         <p class="hint">이미 빠져나간 건 체크만 해주세요 (잔액은 안 바뀌어요). 앞으로 통신비·보험·렌트·구독을 지출로 적으면 자동으로 체크돼요.</p>
       </div>
       <div class="bg-split">
@@ -1050,7 +1056,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         ${splitMsg ? `<p class="toast">${esc(splitMsg)}</p>` : ""}
         <label>나눌 금액 (수입 통장에 들어온 정산금)<input type="text" inputmode="numeric" class="money" id="spAmt" value="${splitAmt ? splitAmt.toLocaleString("ko-KR") : ""}" placeholder="0"></label>
         ${sp ? `<div class="sp-list">
-          ${row("고정지출 몫 · " + esc(nm(r.income)) + "에 그대로", sp.reserve, sp.reserve ? "" : "이미 한 달치가 있어요")}
+          ${row("고정지출 몫 · " + esc(nm(r.income)) + "에 그대로", sp.reserve, sp.reserve ? "" : fixedNeed() === 0 ? "이번 달 고정지출은 다 냈어요" : "통장에 이미 남은 고정지출만큼 있어요")}
           ${sp.h ? row("청약 → " + esc(nm(r.housing)), sp.h) : ""}
           ${sp.emDone ? "" : row("비상금 → " + esc(nm(r.emergency)), sp.em)}
           ${row("저축 → " + esc(nm(r.savings)), sp.sv)}
