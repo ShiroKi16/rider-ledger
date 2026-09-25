@@ -941,24 +941,51 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const rs = bankMap().filter(r => r.pkg === it.pkg && (!r.kw || txt.includes(r.kw)));
     return rs.sort((a,b) => (b.kw ? 1 : 0) - (a.kw ? 1 : 0))[0];
   }
-  /** 잔액이 적힌 알림으로 통장 잔액을 맞춰요. 바뀐 게 있으면 true */
+  // 배민 정산금은 "우아한청년들" 이름으로 들어와요 (2026-09-25 토스 내역에서 확인)
+  const BAEMIN_PAYER = /우아한청년들|우아한형제들|배달의민족/;
+  /** 잔액이 적힌 알림으로 통장 잔액을 맞추고, 배민 정산 입금이면 알아서 정산해요. 바뀐 게 있으면 true */
   function processBank(){
     const items = bankItems(); if(!items.length) return false;
     const done = new Set(settings.bankDone || []);
-    const add = {}; let changed = false;
-    items.forEach(it => {
+    let changed = false;
+    items.slice().sort((a,b) => a.t - b.t).forEach(it => {
       if(done.has(it.id)) return;
       const r = ruleFor(it); if(!r) return;   // 어느 통장인지 아직 몰라요
       done.add(it.id); changed = true;
-      if(!r.acct || it.balance == null || it.t <= (settings.baseAt || 0)) return;
-      const d = ymd(new Date(it.t));
-      (add[d.slice(0,7)] = add[d.slice(0,7)] || []).push({id: "bal" + it.id, type: "bal", acct: r.acct, value: it.balance, at: it.t, date: d, memo: it.app});
+      if(!r.acct || it.t <= (settings.baseAt || 0)) return;
+      const d = ymd(new Date(it.t)), m = d.slice(0,7);
+      if(it.kind === "in" && it.amount > 0 && BAEMIN_PAYER.test((it.title || "") + " " + (it.text || ""))) autoSettle(it, r.acct);
+      if(it.balance != null) months[m] = [...(months[m]||[]), {id: "bal" + it.id, type: "bal", acct: r.acct, value: it.balance, at: it.t, date: d, memo: it.app}];
     });
     if(!changed) return false;
-    for(const m in add) months[m] = [...(months[m]||[]), ...add[m]];
     settings = {...settings, bankDone: [...done].slice(-400)};
     saveLocal();
     return true;
+  }
+
+  /** 우아한청년들 입금 → 정산 대기 중인 배민 수입 중 금액이 맞는 만큼 정산 처리 */
+  function autoSettle(it, acct){
+    const A = it.amount;
+    // 이미 [정산 들어왔어요]로 같은 금액을 적어 뒀으면 건너뛰어요
+    const dup = Object.values(months).some(l => l.some(e => e.type === "settle" && e.amount === A && Math.abs((e.at || 0) - it.t) < 3 * 86400000));
+    if(dup) return;
+    // 오래된 배달부터 더해 가며, 3.3% 뗀 합이 입금액과 가장 가까운 지점까지 묶어요
+    const list = pendingList();
+    let best = 0, bestDiff = Infinity, sum = 0;
+    list.forEach((e, i) => { sum += e.amount; const diff = Math.abs(sum * 0.967 - A); if(diff < bestDiff){ bestDiff = diff; best = i + 1; } });
+    if(best && bestDiff > A * 0.2) best = 0; // 너무 안 맞으면 묶지 않고 돈만 기록
+    const ids = new Set(list.slice(0, best).map(e => e.id));
+    const sid = "s" + it.id;
+    for(const mm in months){
+      if(months[mm].some(e => ids.has(e.id))) months[mm] = months[mm].map(e => ids.has(e.id) ? {...e, pending: false, settleId: sid} : e);
+    }
+    const d = ymd(new Date(it.t)), m = d.slice(0,7);
+    months[m] = [...(months[m]||[]), {id: sid, type: "settle", date: d, amount: A, acct, at: it.t, auto: true,
+      memo: `배민 정산 (우아한청년들) ${ids.size}건`}];
+    if(BG()){
+      splitAmt = A;
+      splitMsg = `우아한청년들에서 ${won(A)}이 들어와서 ${ids.size ? ids.size + "일치 배달을 정산 처리했어요" : "정산금으로 기록했어요"}. 아래처럼 나눠 옮기면 돼요.`;
+    }
   }
   const hm = t => { const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   function renderBank(){
