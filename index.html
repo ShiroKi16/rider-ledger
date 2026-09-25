@@ -292,7 +292,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       <section class="panel ctr" aria-labelledby="ctrH">
         <div class="ctr-h"><h2 id="ctrH">배달 카운터</h2><small id="ctrSince">배달을 끝낼 때마다 눌러주세요</small></div>
         <div class="ctr-main">
-          <div class="ctr-num"><b id="ctrBm" class="num">0</b><span>배민 건</span></div>
+          <div class="ctr-num"><b id="ctrBm" class="num">0</b><span id="ctrBmLbl">배민 건</span></div>
           <button type="button" class="ctr-plus" id="ctrPlus" aria-label="배민 배달 1건 추가">+1<small>배민</small></button>
         </div>
         <div class="ctr-sub">
@@ -984,6 +984,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   }
   window.onNativeCounter = c => { if(c && Array.isArray(c.log)){ ctr = c; renderCtr(); } };
   const ctrCount = s => ctr.log.filter(x => x.s === s).length;
+  // 배민 완료 화면에서 읽은 배달료 합계 (안드로이드 앱 v2.5 이상)
+  const ctrFee = () => ctr.log.filter(x => x.s === "b").reduce((a, x) => a + (Number(x.f) || 0), 0);
   const ctrHours = () => {
     if(!ctr.log.length) return 0;
     const h = (Date.now() - ctr.log[0].t) / 3600000;
@@ -992,6 +994,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   function renderCtr(){
     const b = ctrCount("b"), s = ctrCount("s"), has = ctr.log.length > 0;
     $("ctrBm").textContent = b;
+    const fee = ctrFee();
+    $("ctrBmLbl").textContent = fee ? `배민 건 · 배달료 ${won(fee)}` : "배민 건";
     $("ctrShopN").textContent = s;
     $("ctrUndo").disabled = !has; $("ctrReset").disabled = !has; $("ctrDone").disabled = !has;
     if(has){
@@ -1009,7 +1013,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     el.hidden = false;
     if(!st.autoCount){ el.textContent = "배민 자동 카운트가 꺼져 있어요. ⚙ 메뉴에서 켤 수 있어요."; return; }
     if(st.countOn === "screen"){
-      el.textContent = st.a11y ? "배민커넥트에서 ‘배달완료’를 누르면 자동으로 +1 해요. 알림바에서도 +1을 누를 수 있어요."
+      el.textContent = st.a11y ? "배민커넥트 배달 완료 화면이 뜨면 자동으로 +1 하고 배달료도 더해요. 알림바에서도 +1을 누를 수 있어요."
         : "⚙ 메뉴에서 ‘배민 화면 감지’를 켜면 배달완료를 누를 때 자동으로 세요.";
       return;
     }
@@ -1068,7 +1072,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         $("fCnt").value = n;
         if(s === "baemin") $("fHrs").value = ctrHours();
         fromCounter = s;
-        $("toast").textContent = `카운터에서 ${n}건${s==="baemin" ? `, ${ctrHours()}시간` : ""}을 가져왔어요. 금액만 적어주세요.`;
+        const fee = s === "baemin" ? ctrFee() : 0;
+        if(fee) $("fAmt").value = fee.toLocaleString("ko-KR");
+        $("toast").textContent = fee
+          ? `카운터에서 ${n}건, ${ctrHours()}시간, 배달료 ${won(fee)}을 가져왔어요. 프로모션·할증이 있으면 금액을 고쳐서 저장하세요.`
+          : `카운터에서 ${n}건${s==="baemin" ? `, ${ctrHours()}시간` : ""}을 가져왔어요. 금액만 적어주세요.`;
       } else $("toast").textContent = "";
     }
     $("fAmt").focus();
