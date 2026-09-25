@@ -182,6 +182,23 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .bk .inline{display:flex;gap:8px}
 .bk .inline input{flex:1;min-width:0}
 .ghost,.icon-btn{white-space:nowrap}
+.bg-setup,.bg-split{display:grid;gap:10px}
+.bg-setup h3,.bg-split h3{margin:6px 0 0;font-size:15px}
+.bg-acct{display:grid;gap:6px;border-top:1px solid var(--line);padding-top:10px}
+.bg-acct small{display:block;color:var(--muted);font-size:12px;font-weight:400}
+.row3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.bg-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.bg-grid .cell b{font-size:16px}
+.bg-grid .cell.in b{color:var(--in)} .bg-grid .cell.out b{color:var(--out)}
+.bg-em{margin-bottom:6px}
+.bg-split{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.sp-list{display:grid;gap:2px}
+.sp-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.sp-row small{display:block;color:var(--muted);font-size:12px}
+.sp-row b{font-weight:600}
+.tag.role-income{background:var(--in-soft);color:var(--in)}
+.tag.role-allowance{background:var(--accent-soft);color:var(--accent-ink)}
+.tag.role-savings,.tag.role-emergency,.tag.role-housing{background:var(--sunk);color:var(--ink)}
 .nat{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}
 .nat h3{margin:0;font-size:15px}
 .nat-row{display:flex;align-items:center;gap:10px;font-size:14px}
@@ -322,7 +339,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div class="quick" role="group" aria-label="빠른 입력">
           <button type="button" data-q="bm">오늘 배민</button>
           <button type="button" data-q="shop">오늘 <span class="shop-name">가게</span></button>
-          <button type="button" data-q="fuel">주유</button>
+          <button type="button" data-q="food">식비</button>
         </div>
         <div class="tabs" role="tablist">
           <button type="button" role="tab" id="tabIn" class="t-in" aria-selected="true">수입</button>
@@ -371,6 +388,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div class="goal-edit" id="balBtns">
           <button type="button" id="balSync" class="ghost">실제 잔액으로 맞추기</button>
         </div>
+      </section>
+
+      <section class="panel" id="budget" aria-labelledby="bgH">
+        <h2 id="bgH">돈 나누기</h2>
+        <div id="bgBody"></div>
       </section>
 
       <section class="panel" aria-labelledby="gH">
@@ -483,7 +505,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 </dialog>
 <script>
 (() => {
-  const CATS = ["주유","오토바이 정비","보험·리스","장비","통신비","식비·카페","부모님께","쇼핑·여가","기타"];
+  const CATS = ["식비·카페","자전거 정비","보험·렌트","장비","통신비","구독","부모님께","쇼핑·여가","게임","기타"];
   const $ = id => document.getElementById(id);
   // 안드로이드 앱(v2 이상) 안에서 열리면 앱 기능에 연결돼요. 브라우저에서는 null.
   const NATIVE = window.RiderNative || null;
@@ -509,7 +531,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       if(rnd(d*3) < .22) continue;
       const cnt = 10 + Math.floor(rnd(d)*14);
       out.push({id:"d"+d,type:"in",date,amount:cnt*(3600+Math.floor(rnd(d*7)*900)),count:cnt,hours:Math.round((cnt/3.3)*2)/2,memo:rnd(d*5)>.7?"비 와서 할증":""});
-      if(rnd(d*11) < .45) out.push({id:"f"+d,type:"out",date,amount:8000+Math.floor(rnd(d*13)*6)*1000,cat:"주유",memo:""});
+      if(rnd(d*11) < .45) out.push({id:"f"+d,type:"out",date,amount:8000+Math.floor(rnd(d*13)*6)*1000,cat:"식비·카페",memo:""});
       if(rnd(d*17) < .2) out.push({id:"k"+d,type:"out",date,amount:4500+Math.floor(rnd(d*19)*4)*1500,cat:"식비·카페",memo:""});
     }
     out.push({id:"t1",type:"out",date:m+"-05",amount:55000,cat:"통신비",memo:"휴대폰 요금"});
@@ -696,6 +718,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("goalBar").style.width = pct+"%";
 
     renderBalance();
+    renderBudget();
     renderChart(es);
     renderWeeks(es);
     renderCats(outs, tOut);
@@ -741,10 +764,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(e.at && settings.baseAt) return e.at > settings.baseAt;
     return settings.baseDate ? e.date > settings.baseDate : true;
   }
-  function renderBalance(){
-    syncPickers(false);
+  /** 통장별 지금 예상 잔액 {통장id: 금액} */
+  function acctBalances(){
     const accts = settings.accounts || [];
-    const base = accts.reduce((a,x)=>a+(x.amount||0),0);
     const now = {}; accts.forEach(x => now[x.id] = x.amount||0);
     const fallback = payoutId();
     const add = (id, v) => { const k = id in now ? id : fallback; if(k in now) now[k] += v; };
@@ -758,7 +780,15 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       else if(e.type==="out") add(e.acct, -e.amount);
       else if(e.type==="xfer"){ if(e.from in now) now[e.from] -= e.amount; if(e.to in now) now[e.to] += e.amount; }
     }));
-    const bal = Object.values(now).reduce((a,v)=>a+v,0);
+    return now;
+  }
+  function renderBalance(){
+    syncPickers(false);
+    const accts = settings.accounts || [];
+    const base = accts.reduce((a,x)=>a+(x.amount||0),0);
+    const now = acctBalances();
+    // 청약처럼 오래 묶어두는 통장은 "지금 쓸 수 있는 돈"에서 빼요
+    const bal = accts.filter(x => !x.longterm).reduce((a,x)=>a+(now[x.id]||0),0);
     $("balBig").textContent = won(bal);
     $("balBig").classList.add("sm");
     $("balBig").classList.toggle("neg", bal<0);
@@ -773,7 +803,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       return;
     }
     $("accts").innerHTML = accts.length
-      ? accts.map(x => `<div class="acct"><span>${esc(x.name)}${x.payout?' <span class="tag in">배달비 입금</span>':''}<small>맞춘 금액 ${won(x.amount)}</small></span><span${now[x.id]<0?' class="c-out"':''}>${won(now[x.id])}</span></div>`).join("")
+      ? accts.map(x => `<div class="acct"><span>${esc(x.name)}${x.role ? ` <span class="tag role-${x.role}">${ROLE[x.role]}</span>` : x.payout ? ' <span class="tag in">배달비 입금</span>' : ''}<small>맞춘 금액 ${won(x.amount)}${x.longterm ? " · 위 합계에서 빠져 있어요" : ""}</small></span><span${now[x.id]<0?' class="c-out"':''}>${won(now[x.id])}</span></div>`).join("")
       : `<p class="empty">아직 잔액을 적지 않았어요.</p>`;
     $("balBtns").innerHTML = `<button type="button" class="ghost" id="balSync">${accts.length?"실제 잔액으로 맞추기":"지금 잔액 적기"}</button>`;
     if(accts.length && settings.baseDate){
@@ -846,8 +876,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       months[sm] = [...(months[sm]||[]), {id:sid, type:"settle", date:today, amount, acct, at:Date.now(), memo:`배민 정산 ${ids.size}건`}];
       touched.add(sm);
       settling = false; pendSkip = new Set();
+      if(BG()){ splitAmt = amount; splitMsg = "정산금이 들어왔어요. 아래처럼 나눠 옮기면 돼요."; }
       render();
       touched.forEach(m => persistMonth(m));
+      if(BG()) setTimeout(() => { try{ $("budget").scrollIntoView({block:"start", behavior:"smooth"}); }catch(e){} }, 60);
     }
   });
   $("accts").addEventListener("input", e => {
@@ -873,6 +905,197 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       editing = false; render(); persistSettings();
     }
   });
+
+  // ---------- 돈 나누기 (예산) ----------
+  // settings.budget = {roles:{income,allowance,savings,emergency,housing}: 통장id,
+  //   fixed:[{name,amount}], housingMonthly, emergencyGoal, ratiosBefore:{em,sv,al}, ratiosAfter:{sv,al}}
+  const ROLE = {income:"수입·고정지출", allowance:"용돈", savings:"저축", emergency:"비상금", housing:"청약·장기"};
+  const ROLE_HELP = {
+    income: "배민 정산이 들어오고 통신비·보험이 빠져나가는 통장",
+    allowance: "체크카드로 쓰는 돈 (밥, 카페, 쇼핑, 게임)",
+    savings: "목표를 정해 모으는 돈",
+    emergency: "사고·고장·아파서 못 나가는 날을 위한 돈. 손대지 않기",
+    housing: "주택청약처럼 오래 묶어두는 돈 (지금 쓸 수 있는 돈에서는 빠져요)"
+  };
+  let bgEditing = false, splitAmt = 0, splitMsg = "";
+  const BG = () => settings.budget;
+  const curMonth = () => ymd(new Date()).slice(0,7);
+  const monthList = () => months[curMonth()] || [];
+  const fixedTotal = () => (BG().fixed || []).reduce((a,f) => a + (f.amount||0), 0);
+  // 이번 달 이미 낸 고정지출 (통신비·보험·렌트·구독으로 적은 지출)
+  const FIXED_CATS = ["통신비","보험·렌트","구독","보험·리스"];
+  const fixedPaid = () => monthList().filter(e => e.type === "out" && FIXED_CATS.includes(e.cat)).reduce((a,e) => a + e.amount, 0);
+  const fixedNeed = () => Math.max(0, fixedTotal() - fixedPaid());
+  const xferTo = id => monthList().filter(e => e.type === "xfer" && e.to === id).reduce((a,e) => a + e.amount, 0);
+  const floor1k = v => Math.max(0, Math.floor(v / 1000) * 1000);
+
+  /** 정산금 A를 어떻게 나눌지 계산 (정산금은 이미 수입 통장에 들어왔다고 봐요) */
+  function computeSplit(A, bals){
+    const b = BG(), r = b.roles, fixed = fixedNeed();
+    let left = A;
+    // 1) 청약: 이번 달 아직 안 넣었으면 먼저
+    const h = Math.min(left, Math.max(0, (b.housingMonthly||0) - xferTo(r.housing)));
+    left -= h;
+    // 2) 고정지출 몫: 한 달 고정지출을 정산 4번에 나눠 남겨두되, 수입 통장에 이미 충분하면 안 남겨요
+    const weekly = Math.ceil(fixedTotal() / 4 / 1000) * 1000;
+    const incBefore = (bals[r.income]||0) - A;
+    const reserve = Math.min(left, weekly, Math.max(0, fixed - incBefore));
+    left -= reserve;
+    // 3) 나머지를 비율대로: 비상금을 다 채우기 전과 후가 달라요
+    const emBal = bals[r.emergency]||0, goal = b.emergencyGoal||0;
+    const emDone = goal > 0 && emBal >= goal;
+    const ra = emDone ? {em:0, ...b.ratiosAfter} : b.ratiosBefore;
+    let em = floor1k(left * (ra.em||0) / 100);
+    let sv = floor1k(left * (ra.sv||0) / 100);
+    if(goal > 0 && em > goal - emBal){ const need = Math.ceil((goal - emBal) / 1000) * 1000; sv += em - need; em = need; }
+    const al = left - em - sv;
+    return {h, reserve, em, sv, al, emDone, fixed};
+  }
+
+  function setupHTML(){
+    const b = BG() || {};
+    const accts = settings.accounts || [];
+    const bals = acctBalances();
+    const byRole = role => b.roles && accts.find(x => x.id === b.roles[role]);
+    const inc = byRole("income") || accts.find(x => x.payout) || accts[0];
+    const others = accts.filter(x => x !== inc && !(b.roles && Object.values(b.roles).includes(x.id)));
+    const alw = byRole("allowance") || others.slice().sort((a,c) => (bals[c.id]||0) - (bals[a.id]||0))[0];
+    // 처음 설정할 때는 역할 없는 나머지 통장 돈을 용돈 통장에 합쳤다고 봐요
+    const merged = b.roles ? [] : others.filter(x => x !== alw && (bals[x.id]||0) !== 0);
+    const pre = {
+      income: inc ? {name: inc.name, amt: bals[inc.id]||0} : {name:"", amt:0},
+      allowance: alw ? {name: alw.name, amt: (bals[alw.id]||0) + merged.reduce((a,x)=>a+(bals[x.id]||0),0)} : {name:"", amt:0}
+    };
+    ["savings","emergency","housing"].forEach(k => { const a = byRole(k); pre[k] = a ? {name:a.name, amt:bals[a.id]||0} : {name:"", amt:0}; });
+    const fixed = b.fixed && b.fixed.length ? b.fixed : [{name:"통신비",amount:0},{name:"보험·자전거 렌트",amount:0},{name:"구독",amount:0}];
+    const rb = b.ratiosBefore || {em:40, sv:30, al:30}, ra = b.ratiosAfter || {sv:60, al:40};
+    const n = v => v ? Number(v).toLocaleString("ko-KR") : "";
+    return `<div class="bg-setup">
+      <p class="hint">통장마다 역할을 정하고, <b>지금 통장 앱에 보이는 잔액</b>을 적어주세요. 저장하면 이 금액부터 다시 계산해요.</p>
+      ${["income","allowance","savings","emergency","housing"].map(k => `
+        <div class="bg-acct"><div><b>${ROLE[k]}</b><small>${ROLE_HELP[k]}</small></div>
+          <div class="row"><input type="text" id="bgN_${k}" maxlength="24" placeholder="통장 이름" value="${esc(pre[k].name)}"><input type="text" inputmode="numeric" class="num bg-money" id="bgA_${k}" placeholder="잔액" value="${n(pre[k].amt)}"></div></div>`).join("")}
+      ${merged.length ? `<p class="hint">${merged.map(x => esc(x.name) + " " + won(bals[x.id])).join(", ")}은 용돈 통장에 합쳤다고 보고 목록에서 빼요.</p>` : ""}
+      <h3>매달 나가는 고정지출</h3>
+      <div id="bgFixed">${fixed.map(f => `<div class="row bg-fx"><input type="text" class="fx-n" maxlength="20" value="${esc(f.name)}" placeholder="항목"><input type="text" inputmode="numeric" class="num bg-money fx-a" value="${n(f.amount)}" placeholder="한 달 금액"></div>`).join("")}</div>
+      <button type="button" class="ghost" id="bgFxAdd">+ 고정지출 추가</button>
+      <div class="row">
+        <label>청약에 매달 넣을 돈<input type="text" inputmode="numeric" class="num bg-money" id="bgHousing" value="${n(b.housingMonthly)}" placeholder="0"></label>
+        <label>비상금 목표<input type="text" inputmode="numeric" class="num bg-money" id="bgGoal" value="${n(b.emergencyGoal || 1000000)}"></label>
+      </div>
+      <h3>남은 돈 나누는 비율 (%)</h3>
+      <p class="hint">비상금 목표를 채우기 전</p>
+      <div class="row3"><label>비상금<input type="number" id="bgRbEm" value="${rb.em}"></label><label>저축<input type="number" id="bgRbSv" value="${rb.sv}"></label><label>용돈<input type="number" id="bgRbAl" value="${rb.al}"></label></div>
+      <p class="hint">비상금 목표를 채운 후</p>
+      <div class="row"><label>저축<input type="number" id="bgRaSv" value="${ra.sv}"></label><label>용돈<input type="number" id="bgRaAl" value="${ra.al}"></label></div>
+      <p class="toast" id="bgErr"></p>
+      <div class="btns"><button type="button" class="ghost primary" id="bgSave">이대로 시작하기</button>${BG() ? `<button type="button" class="ghost" id="bgCancel">취소</button>` : ""}</div>
+    </div>`;
+  }
+
+  function renderBudget(){
+    const el = $("bgBody"); if(!el) return;
+    if(!BG() || bgEditing){ el.innerHTML = setupHTML(); return; }
+    const b = BG(), r = b.roles, bals = acctBalances();
+    const inMonth = monthList().filter(e => e.type === "settle" || (e.type === "in" && e.src === "shop")).reduce((a,e) => a + e.amount, 0);
+    const fixed = fixedNeed(), incBal = bals[r.income]||0;
+    const emBal = bals[r.emergency]||0, goal = b.emergencyGoal||0, pct = goal ? Math.min(100, emBal / goal * 100) : 0;
+    const svM = xferTo(r.savings), hsM = xferTo(r.housing), alw = bals[r.allowance]||0;
+    const sp = splitAmt ? computeSplit(splitAmt, bals) : null;
+    const row = (lbl, amt, sub) => `<div class="sp-row"><span>${lbl}${sub ? `<small>${sub}</small>` : ""}</span><b class="num">${won(amt)}</b></div>`;
+    const nm = id => acctName(id);
+    el.innerHTML = `
+      <div class="bg-grid">
+        <div class="cell"><small>이번 달 들어온 돈</small><b>${won(inMonth)}</b></div>
+        <div class="cell ${incBal >= fixed ? "in" : "out"}"><small>고정지출 준비</small><b>${incBal >= fixed ? "준비됨" : won(fixed - incBal) + " 부족"}</b></div>
+        <div class="cell"><small>이번 달 저축</small><b>${won(svM)}</b></div>
+        <div class="cell"><small>청약 ${won(b.housingMonthly||0)}</small><b>${!b.housingMonthly ? "-" : hsM >= b.housingMonthly ? "넣었어요" : "아직"}</b></div>
+      </div>
+      <div class="bg-em"><div class="goal-head"><span>비상금 <b class="num">${won(emBal)}</b> / ${won(goal)}</span><span class="num">${Math.round(pct)}%</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>
+      <p class="hint">남은 용돈 <b class="num">${won(alw)}</b> · 고정지출 한 달 ${won(fixedTotal())}${fixedPaid() ? ` 중 ${won(fixedPaid())} 냈어요` : ""}. 통신비·보험·렌트·구독을 지출로 적으면 낸 걸로 쳐요.</p>
+      <div class="bg-split">
+        <h3>정산금 나누기</h3>
+        ${splitMsg ? `<p class="toast">${esc(splitMsg)}</p>` : ""}
+        <label>나눌 금액 (수입 통장에 들어온 정산금)<input type="text" inputmode="numeric" class="money" id="spAmt" value="${splitAmt ? splitAmt.toLocaleString("ko-KR") : ""}" placeholder="0"></label>
+        ${sp ? `<div class="sp-list">
+          ${row("고정지출 몫 · " + esc(nm(r.income)) + "에 그대로", sp.reserve, sp.reserve ? "" : "이미 한 달치가 있어요")}
+          ${sp.h ? row("청약 → " + esc(nm(r.housing)), sp.h) : ""}
+          ${sp.emDone ? "" : row("비상금 → " + esc(nm(r.emergency)), sp.em)}
+          ${row("저축 → " + esc(nm(r.savings)), sp.sv)}
+          ${row("용돈 → " + esc(nm(r.allowance)), sp.al)}
+        </div>
+        <div class="btns"><button type="button" class="ghost primary" id="spRec">이대로 이체 기록</button></div>
+        <p class="hint">기록만 돼요. 실제 이체는 은행 앱에서 해주세요.</p>` : `<p class="hint">정산을 저장하면 여기에 나누는 금액이 자동으로 떠요.</p>`}
+      </div>
+      <div class="btns"><button type="button" class="ghost" id="bgEdit">설정 바꾸기</button></div>`;
+  }
+
+  $("bgBody").addEventListener("input", e => {
+    const t = e.target;
+    if(t.classList.contains("bg-money") || t.id === "spAmt"){ const v = parseMoney(t.value); t.value = v ? v.toLocaleString("ko-KR") : ""; }
+  });
+  $("bgBody").addEventListener("change", e => {
+    if(e.target.id === "spAmt"){ splitAmt = parseMoney(e.target.value); splitMsg = ""; renderBudget(); }
+  });
+  $("bgBody").addEventListener("click", e => {
+    const t = e.target;
+    if(t.id === "bgEdit"){ bgEditing = true; renderBudget(); }
+    else if(t.id === "bgCancel"){ bgEditing = false; renderBudget(); }
+    else if(t.id === "bgFxAdd"){
+      const d = document.createElement("div"); d.className = "row bg-fx";
+      d.innerHTML = `<input type="text" class="fx-n" maxlength="20" placeholder="항목"><input type="text" inputmode="numeric" class="num bg-money fx-a" placeholder="한 달 금액">`;
+      $("bgFixed").appendChild(d);
+    }
+    else if(t.id === "bgSave") saveBudget();
+    else if(t.id === "spRec") recordSplit();
+  });
+
+  function saveBudget(){
+    const num = id => parseMoney($(id).value), pct = id => Math.max(0, Math.min(100, Number($(id).value) || 0));
+    const names = {}, amts = {};
+    for(const k of Object.keys(ROLE)){
+      names[k] = $("bgN_" + k).value.trim();
+      amts[k] = num("bgA_" + k);
+      if(!names[k]){ $("bgErr").textContent = ROLE[k] + " 통장 이름을 적어주세요."; return; }
+    }
+    const rb = {em: pct("bgRbEm"), sv: pct("bgRbSv"), al: pct("bgRbAl")}, ra = {sv: pct("bgRaSv"), al: pct("bgRaAl")};
+    if(rb.em + rb.sv + rb.al !== 100 || ra.sv + ra.al !== 100){ $("bgErr").textContent = "비율을 더해서 100이 되게 맞춰주세요."; return; }
+    const fixed = [...document.querySelectorAll("#bgFixed .bg-fx")]
+      .map(r => ({name: r.querySelector(".fx-n").value.trim(), amount: parseMoney(r.querySelector(".fx-a").value)}))
+      .filter(f => f.name);
+    // 통장 id는 되도록 그대로 (예전 기록이 같은 통장을 가리키게)
+    const old = settings.accounts || [], b = BG();
+    const inc0 = (b && old.find(x => x.id === b.roles.income)) || old.find(x => x.payout);
+    const others0 = old.filter(x => x !== inc0);
+    const bals = acctBalances();
+    const alw0 = (b && old.find(x => x.id === b.roles.allowance)) || others0.slice().sort((a,c) => (bals[c.id]||0) - (bals[a.id]||0))[0];
+    const pick = (k, fallback) => (b && b.roles[k]) || (fallback && fallback.id) || ("a" + k.slice(0,3) + Date.now().toString(36));
+    const roles = {income: pick("income", inc0), allowance: pick("allowance", alw0), savings: pick("savings"), emergency: pick("emergency"), housing: pick("housing")};
+    const accounts = Object.keys(ROLE).map(k => ({
+      id: roles[k], name: names[k], amount: amts[k], role: k,
+      ...(k === "income" ? {payout: true} : {}), ...(k === "housing" ? {longterm: true} : {})
+    }));
+    const now = new Date();
+    settings = {...settings, accounts, baseAt: now.getTime(), baseDate: ymd(now),
+      budget: {roles, fixed, housingMonthly: num("bgHousing"), emergencyGoal: num("bgGoal"), ratiosBefore: rb, ratiosAfter: ra}};
+    bgEditing = false;
+    saveLocal(); render();
+  }
+
+  function recordSplit(){
+    const b = BG(), r = b.roles, sp = computeSplit(splitAmt, acctBalances());
+    const parts = [[r.housing, sp.h, "청약"], [r.emergency, sp.em, "비상금"], [r.savings, sp.sv, "저축"], [r.allowance, sp.al, "용돈"]];
+    const m = today.slice(0,7), t0 = Date.now();
+    const add = parts.filter(([to, amt]) => to && amt > 0).map(([to, amt, lbl], i) => ({
+      id: (t0 + i).toString(36) + Math.random().toString(36).slice(2,5), type: "xfer", date: today,
+      amount: amt, from: r.income, to, at: t0 + i, memo: "정산 나누기 · " + lbl
+    }));
+    if(!add.length) return;
+    months[m] = [...(months[m]||[]), ...add];
+    splitAmt = 0;
+    splitMsg = `이체 ${add.length}건을 기록했어요. 은행 앱에서 같은 금액으로 옮겨주세요.`;
+    persistMonth(m); render();
+  }
 
   function niceMax(v){ const p = Math.pow(10, Math.floor(Math.log10(v))); for(const m of [1,2,2.5,5,10]) if(m*p >= v) return m*p; return 10*p; }
   function short(v){ return v>=10000 ? (v/10000).toLocaleString("ko-KR",{maximumFractionDigits:1})+"만" : v.toLocaleString("ko-KR"); }
@@ -960,7 +1183,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("submitBtn").classList.toggle("x", m==="x");
     $("formHint").textContent = {
       in: src==="shop" ? ""+SHOP()+"에서 받은 배달비를 적어요. 3.3%를 떼지 않고 그대로 잔액에 더해요." : "배민커넥트 앱에 찍힌 그날 배달료 합계(프로모션 포함)를 적어요. 정산될 때까지 ‘받을 돈’에 쌓여요.",
-      out:"기름값·정비비처럼 일 때문에 쓴 돈도 꼭 적어두세요. 세금 신고 때 경비가 돼요.",
+      out:"자전거 정비·장비·렌트처럼 일 때문에 쓴 돈도 꼭 적어두세요. 세금 신고 때 경비가 돼요.",
       x:"내 통장끼리 옮긴 돈이에요. 쓴 돈에 들어가지 않고, 통장 잔액만 바뀌어요."
     }[m];
     $("fMemo").placeholder = {in:"예: 저녁 피크, 비 옴", out:"예: 셀프주유소, 엔진오일", x:"예: 이번 주 저축"}[m];
@@ -1101,9 +1324,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   function quick(q){
     fromCounter = "";
     $("fAmt").value = ""; $("fCnt").value = ""; $("fHrs").value = ""; $("fMemo").value = "";
-    if(q === "fuel"){
+    if(q === "food"){
       setMode("out");
-      const c = [...$("chips").children].find(x => x.textContent === "주유"); if(c) c.click();
+      const c = [...$("chips").children].find(x => x.textContent === "식비·카페"); if(c) c.click();
       $("fDate").value = today;
     } else {
       const s = q === "shop" ? "shop" : "baemin", code = q === "shop" ? "s" : "b";
