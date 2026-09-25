@@ -1,7 +1,7 @@
 // 라이더 가계부 서비스 워커
 // 인터넷이 되면 항상 최신 화면을 받아오고, 인터넷이 없을 때만 저장해 둔 화면을 씁니다.
 // VERSION을 바꾸면 폰에 남아 있는 옛 서비스 워커도 바로 교체돼요.
-const VERSION = "2026-09-25.18";
+const VERSION = "2026-09-25.19";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png"];

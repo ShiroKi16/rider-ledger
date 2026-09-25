@@ -193,6 +193,7 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .bg-em{margin-bottom:6px}
 .bg-split{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
 .sp-list{display:grid;gap:2px}
+.bg-fx{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,.7fr);gap:8px}
 .bn-item{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
 .bn-item:first-child{border-top:0;margin-top:0;padding-top:0}
 .bn-item small{display:block;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
@@ -493,6 +494,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <p class="hint">‘배민 알림 읽기’는 배민커넥트 앱 알림만 봐요. 다른 앱 알림은 읽지도 저장하지도 않아요.</p>
         <label class="chk"><input type="checkbox" id="natShowBar"> 알림바에 카운터 띄우기 (+1 버튼, 운행 시간)</label>
         <label class="chk"><input type="checkbox" id="natAuto"> 배민 배달을 자동으로 세기</label>
+        <label class="chk"><input type="checkbox" id="natBackup"> 매일 밤 자동 백업 (다운로드 폴더)</label>
+        <label class="chk"><input type="checkbox" id="natDue"> 고정지출 결제일 전날 알림</label>
+        <label class="chk"><input type="checkbox" id="natWeekly"> 일요일 밤 주간 리포트</label>
+        <p class="hint" id="natBackupNote"></p>
         <label class="chk"><input type="checkbox" id="natBank"> 은행 입출금 알림으로 잔액 맞추기</label>
         <label class="chk"><input type="checkbox" id="natAlert"> 자동으로 셀 때마다 알림 (몇 건째 · 오늘 배달료)</label>
         <label for="natCountOn">무슨 알림으로 셀까요?
@@ -564,12 +569,32 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     }catch(e){ setStatus("저장된 기록을 읽지 못했어요. 백업 파일이 있으면 불러와 주세요."); }
   }
   function saveLocal(){
-    try{ localStorage.setItem(KEY, JSON.stringify({months, settings})); return true; }
+    try{ localStorage.setItem(KEY, JSON.stringify({months, settings})); syncNative(); return true; }
     catch(e){ setStatus("저장하지 못했어요. 폰 저장 공간을 확인해 주세요."); return false; }
   }
   function persistMonth(){ if(months) for(const m in months) if(!months[m].length) delete months[m]; saveLocal(); renderBackup(); return Promise.resolve(); }
   function persistSettings(){ saveLocal(); renderBackup(); }
   function setStatus(t){ $("status").textContent = t; }
+
+  // 안드로이드 앱에 요약을 넘겨둬요: 앱이 꺼져 있어도 밤에 자동 백업·결제일 알림·주간 리포트를 만들 수 있게
+  var syncT = 0;
+  function syncNative(){
+    if(!NATIVE || !NATIVE.syncData) return;
+    clearTimeout(syncT);
+    syncT = setTimeout(() => { try{ NATIVE.syncData(JSON.stringify(nativeSnapshot())); }catch(e){} }, 1500);
+  }
+  function nativeSnapshot(){
+    const b = settings.budget, bals = acctBalances();
+    const fixed = b ? fixedStatus().map(f => ({name: f.name, amount: f.amount || 0, day: f.day || 0, paid: !!f.paid})) : [];
+    const days = {}, cut = Date.now() - 21 * 86400000;
+    Object.values(months).forEach(l => l.forEach(e => {
+      if(e.type !== "in" || Date.parse(e.date) < cut) return;
+      const d = days[e.date] || (days[e.date] = {cnt: 0, amt: 0, hrs: 0});
+      d.cnt += e.count || 0; d.amt += e.amount; d.hrs += e.hours || 0;
+    }));
+    return {t: Date.now(), backup: backupJSON(), fixed, days,
+      incomeBal: b ? Math.round(bals[b.roles.income] || 0) : -1, incomeName: b ? acctName(b.roles.income) : ""};
+  }
   const SHOP = () => settings.shopName || "가게";
 
   // ---------- 백업 ----------
@@ -608,6 +633,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natAuto").checked = !!st.autoCount;
     $("natAlert").checked = st.alertOnCount !== false;
     $("natBank").checked = st.bankWatch !== false;
+    $("natBackup").checked = st.autoBackup !== false;
+    $("natDue").checked = st.dueAlert !== false;
+    $("natWeekly").checked = st.weeklyReport !== false;
+    [$("natBackup"), $("natDue"), $("natWeekly")].forEach(x => x.disabled = !NATIVE.syncData);
+    $("natBackupNote").textContent = !NATIVE.syncData ? "이 기능들은 가계부 앱 v2.11 이상에서 돼요."
+      : st.lastAutoBackup ? `마지막 자동 백업: ${hm(st.lastAutoBackup)} · 다운로드 폴더 ‘라이더가계부-자동백업.json’`
+      : "밤 9시쯤 처음 자동 백업돼요. 파일 이름: 라이더가계부-자동백업.json";
     $("natBank").disabled = !st.listener;
     $("natAlert").disabled = !st.autoCount;
     $("natCountOn").value = st.countOn || "assign";
@@ -634,6 +666,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natA11yBtn").onclick = () => { try{ NATIVE.openA11ySettings(); }catch(e){ $("natA11yHelp").textContent = "이 기능은 가계부 앱 v2.3 이상에서 돼요. 새 APK를 설치해 주세요."; } };
     $("natShowBar").onchange = e => { NATIVE.setPref("showBar", e.target.checked ? "1" : "0"); renderNative(); };
     $("natAuto").onchange = e => { NATIVE.setPref("autoCount", e.target.checked ? "1" : "0"); renderNative(); renderAutoHint(); };
+    $("natBackup").onchange = e => { NATIVE.setPref("autoBackup", e.target.checked ? "1" : "0"); renderNative(); };
+    $("natDue").onchange = e => { NATIVE.setPref("dueAlert", e.target.checked ? "1" : "0"); renderNative(); };
+    $("natWeekly").onchange = e => { NATIVE.setPref("weeklyReport", e.target.checked ? "1" : "0"); renderNative(); };
     $("natBank").onchange = e => { NATIVE.setPref("bankWatch", e.target.checked ? "1" : "0"); renderNative(); };
     $("natAlert").onchange = e => { NATIVE.setPref("alertOnCount", e.target.checked ? "1" : "0"); renderNative(); };
     $("natScan").onchange = e => { NATIVE.setPref("scanMode", e.target.checked ? "1" : "0"); renderNative(); };
@@ -1094,6 +1129,18 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   const floor1k = v => Math.max(0, Math.floor(v / 1000) * 1000);
 
   /** 정산금 A를 어떻게 나눌지 계산 (정산금은 이미 수입 통장에 들어왔다고 봐요) */
+  /** 이번 주(월요일부터) 용돈 통장에서 쓴 돈: 적은 지출 + 아직 안 정한 은행 출금 알림 */
+  function allowanceSpentWeek(){
+    const now = new Date(), mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+    const from = ymd(mon), acct = BG().roles.allowance;
+    let s = 0;
+    Object.values(months).forEach(l => l.forEach(e => { if(e.type === "out" && e.acct === acct && e.date >= from) s += e.amount; }));
+    const sugDone = new Set(settings.sugDone || []);
+    bankItems().forEach(it => { const r = ruleFor(it);
+      if(r && r.acct === acct && it.kind === "out" && !sugDone.has(it.id) && it.t >= mon.getTime()) s += it.amount; });
+    return s;
+  }
+
   function computeSplit(A, bals){
     const b = BG(), r = b.roles, fixed = fixedNeed();
     let left = A;
@@ -1142,12 +1189,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           <div class="row"><input type="text" id="bgN_${k}" maxlength="24" placeholder="통장 이름" value="${esc(pre[k].name)}"><input type="text" inputmode="numeric" class="num bg-money" id="bgA_${k}" placeholder="잔액" value="${n(pre[k].amt)}"></div></div>`).join("")}
       ${merged.length ? `<p class="hint">${merged.map(x => esc(x.name) + " " + won(bals[x.id])).join(", ")}은 용돈 통장에 합쳤다고 보고 목록에서 빼요.</p>` : ""}
       <h3>매달 나가는 고정지출</h3>
-      <div id="bgFixed">${fixed.map(f => `<div class="row bg-fx"><input type="text" class="fx-n" maxlength="20" value="${esc(f.name)}" placeholder="항목"><input type="text" inputmode="numeric" class="num bg-money fx-a" value="${n(f.amount)}" placeholder="한 달 금액"></div>`).join("")}</div>
+      <p class="hint">결제일(매달 며칠)을 적으면 전날 밤에 알려줘요.</p>
+      <div id="bgFixed">${fixed.map(f => `<div class="bg-fx"><input type="text" class="fx-n" maxlength="20" value="${esc(f.name)}" placeholder="항목"><input type="text" inputmode="numeric" class="num bg-money fx-a" value="${n(f.amount)}" placeholder="한 달 금액"><input type="number" class="fx-d" min="1" max="31" value="${f.day || ""}" placeholder="결제일"></div>`).join("")}</div>
       <button type="button" class="ghost" id="bgFxAdd">+ 고정지출 추가</button>
       <div class="row">
         <label>청약에 매달 넣을 돈<input type="text" inputmode="numeric" class="num bg-money" id="bgHousing" value="${n(b.housingMonthly)}" placeholder="0"></label>
         <label>비상금 목표<input type="text" inputmode="numeric" class="num bg-money" id="bgGoal" value="${n(b.emergencyGoal || 1000000)}"></label>
       </div>
+      <label>일주일 용돈 한도 (선택)<input type="text" inputmode="numeric" class="num bg-money" id="bgAlwWeek" value="${n(b.allowanceWeekly)}" placeholder="예: 50,000"></label>
       <h3>남은 돈 나누는 비율 (%)</h3>
       <p class="hint">비상금 목표를 채우기 전</p>
       <div class="row3"><label>비상금<input type="number" id="bgRbEm" value="${rb.em}"></label><label>저축<input type="number" id="bgRbSv" value="${rb.sv}"></label><label>용돈<input type="number" id="bgRbAl" value="${rb.al}"></label></div>
@@ -1178,11 +1227,12 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div class="cell"><small>청약 ${won(b.housingMonthly||0)}</small><b>${!b.housingMonthly ? "-" : hsM >= b.housingMonthly ? "넣었어요" : "아직"}</b></div>
       </div>
       <div class="bg-em"><div class="goal-head"><span>비상금 <b class="num">${won(emBal)}</b> / ${won(goal)}</span><span class="num">${Math.round(pct)}%</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>
-      <p class="hint">남은 용돈 <b class="num">${won(alw)}</b></p>
+      <p class="hint">남은 용돈 <b class="num">${won(alw)}</b>${b.allowanceWeekly ? (() => { const s = allowanceSpentWeek(); const over = s > b.allowanceWeekly;
+          return ` · 이번 주 <b class="num ${over ? "c-out" : ""}">${won(s)}</b> / ${won(b.allowanceWeekly)} 씀${over ? " (한도 넘었어요)" : ""}`; })() : ""}</p>
       <div class="fx-list">
         <div class="fx-h"><b>이번 달 고정지출 · 청약</b><span class="num">${won(fixedPaid())} / ${won(fixedTotal())} 냈어요</span></div>
         ${fixedStatus().map(f => `<label class="chk fx-chk"><input type="checkbox" data-fx="${esc(f.name)}" ${f.paid ? "checked" : ""} ${f.auto ? "disabled" : ""}>
-          <span>${esc(f.name)}${f.auto ? " <small>(지출 기록으로 확인)</small>" : ""}</span><span class="num">${won(f.amount)}</span></label>`).join("")}
+          <span>${esc(f.name)}${f.day ? ` <small>매달 ${f.day}일</small>` : ""}${f.auto ? " <small>(지출 기록으로 확인)</small>" : ""}</span><span class="num">${won(f.amount)}</span></label>`).join("")}
         ${b.housingMonthly ? `<label class="chk fx-chk"><input type="checkbox" data-fx="${HOUSING_KEY}" ${hsM >= b.housingMonthly ? "checked" : ""} ${xferTo(r.housing) >= b.housingMonthly ? "disabled" : ""}>
           <span>청약 (저축)${xferTo(r.housing) >= b.housingMonthly ? " <small>(이체 기록으로 확인)</small>" : ""}</span><span class="num">${won(b.housingMonthly)}</span></label>` : ""}
         <p class="hint">이미 빠져나간 건 체크만 해주세요 (잔액은 안 바뀌어요). 앞으로 통신비·보험·렌트·구독을 지출로 적으면 자동으로 체크돼요.</p>
@@ -1224,8 +1274,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(t.id === "bgEdit"){ bgEditing = true; renderBudget(); }
     else if(t.id === "bgCancel"){ bgEditing = false; renderBudget(); }
     else if(t.id === "bgFxAdd"){
-      const d = document.createElement("div"); d.className = "row bg-fx";
-      d.innerHTML = `<input type="text" class="fx-n" maxlength="20" placeholder="항목"><input type="text" inputmode="numeric" class="num bg-money fx-a" placeholder="한 달 금액">`;
+      const d = document.createElement("div"); d.className = "bg-fx";
+      d.innerHTML = `<input type="text" class="fx-n" maxlength="20" placeholder="항목"><input type="text" inputmode="numeric" class="num bg-money fx-a" placeholder="한 달 금액"><input type="number" class="fx-d" min="1" max="31" placeholder="결제일">`;
       $("bgFixed").appendChild(d);
     }
     else if(t.id === "bgSave") saveBudget();
@@ -1243,7 +1293,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const rb = {em: pct("bgRbEm"), sv: pct("bgRbSv"), al: pct("bgRbAl")}, ra = {sv: pct("bgRaSv"), al: pct("bgRaAl")};
     if(rb.em + rb.sv + rb.al !== 100 || ra.sv + ra.al !== 100){ $("bgErr").textContent = "비율을 더해서 100이 되게 맞춰주세요."; return; }
     const fixed = [...document.querySelectorAll("#bgFixed .bg-fx")]
-      .map(r => ({name: r.querySelector(".fx-n").value.trim(), amount: parseMoney(r.querySelector(".fx-a").value)}))
+      .map(r => ({name: r.querySelector(".fx-n").value.trim(), amount: parseMoney(r.querySelector(".fx-a").value),
+        day: Math.max(0, Math.min(31, Number(r.querySelector(".fx-d").value) || 0))}))
       .filter(f => f.name);
     // 통장 id는 되도록 그대로 (예전 기록이 같은 통장을 가리키게)
     const old = settings.accounts || [], b = BG();
@@ -1259,7 +1310,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     }));
     const now = new Date();
     settings = {...settings, accounts, baseAt: now.getTime(), baseDate: ymd(now),
-      budget: {roles, fixed, housingMonthly: num("bgHousing"), emergencyGoal: num("bgGoal"), ratiosBefore: rb, ratiosAfter: ra}};
+      budget: {...(b || {}), roles, fixed, housingMonthly: num("bgHousing"), emergencyGoal: num("bgGoal"), allowanceWeekly: num("bgAlwWeek"), ratiosBefore: rb, ratiosAfter: ra}};
     bgEditing = false;
     saveLocal(); render();
   }
@@ -1634,6 +1685,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   function hasData(){ return Object.values(months).some(a => a.length); }
   loadLocal();
   try{ processBank(); }catch(e){}
+  syncNative();
   demo = !hasData();
   setStatus("기록은 이 폰 안에만 저장돼요 · 인터넷 없이도 써요");
   render(); renderBackup();
