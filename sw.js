@@ -1,6 +1,6 @@
 // 라이더 가계부 서비스 워커
 // 앱을 고칠 때마다 VERSION을 올려야 폰에 새 버전이 전달돼요.
-const VERSION = "2026-09-25.1";
+const VERSION = "2026-09-25.2";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png"];
