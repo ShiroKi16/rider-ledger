@@ -438,16 +438,19 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <h3>알림바 카운터 · 배민 자동 카운트</h3>
         <div class="nat-row"><span>알림 보내기 권한</span><b id="natNotif"></b><button type="button" class="ghost" id="natNotifBtn">설정 열기</button></div>
         <div class="nat-row"><span>배민 알림 읽기</span><b id="natListen"></b><button type="button" class="ghost" id="natListenBtn">허용하러 가기</button></div>
+        <div class="nat-row"><span>배민 화면 감지 (배달완료 누름)</span><b id="natA11y"></b><button type="button" class="ghost" id="natA11yBtn">켜러 가기</button></div>
+        <p class="hint" id="natA11yHelp" hidden>설정 → <b>설치된 앱</b>(또는 설치된 서비스) → <b>가계부 배달완료 감지</b> → 켜기. 배민커넥트 앱의 버튼과 화면 전환만 보고, 화면 내용은 저장하지 않아요.</p>
         <p class="hint">‘배민 알림 읽기’는 배민커넥트 앱 알림만 봐요. 다른 앱 알림은 읽지도 저장하지도 않아요.</p>
         <label class="chk"><input type="checkbox" id="natShowBar"> 알림바에 카운터 띄우기 (+1 버튼, 운행 시간)</label>
         <label class="chk"><input type="checkbox" id="natAuto"> 배민 알림이 오면 자동으로 +1</label>
         <label for="natCountOn">무슨 알림으로 셀까요?
           <select id="natCountOn">
+            <option value="screen">배민커넥트에서 ‘배달완료’를 누를 때 (화면 감지, 추천)</option>
             <option value="assign">신규배달 배정 알림 (“새로운 배달이 배정되었습니다”)</option>
             <option value="done">배달 완료 알림 (배민이 보낼 때만)</option>
           </select>
         </label>
-        <p class="hint">배민커넥트는 지금 배달 완료 알림을 따로 보내지 않아서, 배정 알림으로 세는 게 맞아요. 배정됐다가 취소되면 ‘되돌리기’를 눌러주세요.</p>
+        <p class="hint">배민커넥트는 배달 완료 알림을 따로 보내지 않아요. 화면 감지를 켜면 ‘배달완료’를 누를 때 세고, 안 켜면 배정 알림으로 세요(배정이 취소되면 ‘되돌리기’).</p>
         <details id="natLearn">
           <summary>최근 배민 알림 기록 (자동 인식 확인용)</summary>
           <p class="hint">자동으로 안 세지거나 잘못 세지면, 이 목록을 캡처해서 Claude에게 보내주세요.</p>
@@ -538,6 +541,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natListen").textContent = st.listener ? "허용됨" : "허용 안 됨";
     $("natListen").className = st.listener ? "c-in" : "c-out";
     $("natListenBtn").hidden = !!st.listener;
+    $("natA11y").textContent = st.a11y ? "켜짐" : "꺼짐";
+    $("natA11y").className = st.a11y ? "c-in" : "c-out";
+    $("natA11yBtn").hidden = !!st.a11y;
+    $("natA11yHelp").hidden = !!st.a11y;
     $("natShowBar").checked = !!st.showBar;
     $("natAuto").checked = !!st.autoCount;
     $("natCountOn").value = st.countOn || "assign";
@@ -553,6 +560,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   if(NATIVE){
     $("natNotifBtn").onclick = () => NATIVE.openNotifSettings();
     $("natListenBtn").onclick = () => NATIVE.openListenerSettings();
+    $("natA11yBtn").onclick = () => { try{ NATIVE.openA11ySettings(); }catch(e){ $("natA11yHelp").textContent = "이 기능은 가계부 앱 v2.3 이상에서 돼요. 새 APK를 설치해 주세요."; } };
     $("natShowBar").onchange = e => { NATIVE.setPref("showBar", e.target.checked ? "1" : "0"); renderNative(); };
     $("natAuto").onchange = e => { NATIVE.setPref("autoCount", e.target.checked ? "1" : "0"); renderNative(); renderAutoHint(); };
     $("natCountOn").onchange = e => { NATIVE.setPref("countOn", e.target.value); renderNative(); renderAutoHint(); };
@@ -982,9 +990,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(!NATIVE){ el.hidden = true; return; }
     let st = {}; try{ st = JSON.parse(NATIVE.status()); }catch(e){}
     el.hidden = false;
+    if(!st.autoCount){ el.textContent = "배민 자동 카운트가 꺼져 있어요. ⚙ 메뉴에서 켤 수 있어요."; return; }
+    if(st.countOn === "screen"){
+      el.textContent = st.a11y ? "배민커넥트에서 ‘배달완료’를 누르면 자동으로 +1 해요. 알림바에서도 +1을 누를 수 있어요."
+        : "⚙ 메뉴에서 ‘배민 화면 감지’를 켜면 배달완료를 누를 때 자동으로 세요.";
+      return;
+    }
     const what = st.countOn === "done" ? "‘배달 완료’ 알림" : "‘신규배달’ 배정 알림";
-    el.textContent = !st.autoCount ? "배민 자동 카운트가 꺼져 있어요. ⚙ 메뉴에서 켤 수 있어요."
-      : st.listener ? `배민커넥트 ${what}이 오면 자동으로 +1 해요. 배정이 취소되면 ‘되돌리기’를 눌러주세요.`
+    el.textContent = st.listener ? `배민커넥트 ${what}이 오면 자동으로 +1 해요. 배정이 취소되면 ‘되돌리기’를 눌러주세요.`
       : `⚙ 메뉴에서 ‘배민 알림 읽기’를 허용하면 ${what}으로 자동으로 세요.`;
   }
   function tap(s){
