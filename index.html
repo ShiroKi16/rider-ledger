@@ -208,6 +208,14 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .ctr-plus small{font-family:var(--body);font-size:13px;font-weight:700}
 .ctr-plus:active{transform:translateY(2px);box-shadow:0 1px 0 var(--accent-ink)}
 .ctr-sub{display:flex;gap:8px;flex-wrap:wrap}
+.ctr-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ctr-stats .ctr-fee{grid-column:1/-1}
+.ctr-stats b{white-space:nowrap}
+.ctr-stats>div{background:var(--sunk);border-radius:10px;padding:10px 12px;display:grid;gap:2px;min-width:0}
+.ctr-stats small{color:var(--muted);font-size:12px}
+.ctr-stats b{font-family:var(--mono);font-weight:600;font-size:16px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.ctr-stats .ctr-fee b{font-size:22px;color:var(--in)}
+.ctr-stats span{color:var(--muted);font-size:11.5px;line-height:1.35}
 .ctr-sub .ghost{touch-action:manipulation}
 .ctr-sub .ghost b{margin-left:2px}
 .ctr-done{width:100%;padding:12px}
@@ -294,6 +302,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div class="ctr-main">
           <div class="ctr-num"><b id="ctrBm" class="num">0</b><span id="ctrBmLbl">배민 건</span></div>
           <button type="button" class="ctr-plus" id="ctrPlus" aria-label="배민 배달 1건 추가">+1<small>배민</small></button>
+        </div>
+        <div class="ctr-stats" id="ctrStats">
+          <div class="ctr-fee"><small>오늘 배달료</small><b class="num" id="ctrFee">-</b><span id="ctrFeeSrc"></span></div>
+          <div><small>건당</small><b class="num" id="ctrPer">-</b></div>
+          <div><small>시간당</small><b class="num" id="ctrHr">-</b></div>
         </div>
         <div class="ctr-sub">
           <button type="button" class="ghost" id="ctrShop">+1 <span class="shop-name">가게</span> <b class="num" id="ctrShopN">0</b></button>
@@ -442,7 +455,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <p class="hint" id="natA11yHelp" hidden>설정 → <b>설치된 앱</b>(또는 설치된 서비스) → <b>가계부 배달완료 감지</b> → 켜기. 배민커넥트 앱의 버튼과 화면 전환만 보고, 화면 내용은 저장하지 않아요.</p>
         <p class="hint">‘배민 알림 읽기’는 배민커넥트 앱 알림만 봐요. 다른 앱 알림은 읽지도 저장하지도 않아요.</p>
         <label class="chk"><input type="checkbox" id="natShowBar"> 알림바에 카운터 띄우기 (+1 버튼, 운행 시간)</label>
-        <label class="chk"><input type="checkbox" id="natAuto"> 배민 알림이 오면 자동으로 +1</label>
+        <label class="chk"><input type="checkbox" id="natAuto"> 배민 배달을 자동으로 세기</label>
+        <label class="chk"><input type="checkbox" id="natAlert"> 자동으로 셀 때마다 알림 (몇 건째 · 오늘 배달료)</label>
         <label for="natCountOn">무슨 알림으로 셀까요?
           <select id="natCountOn">
             <option value="screen">배민커넥트에서 ‘배달완료’를 누를 때 (화면 감지, 추천)</option>
@@ -554,6 +568,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natA11yHelp").hidden = !!st.a11y;
     $("natShowBar").checked = !!st.showBar;
     $("natAuto").checked = !!st.autoCount;
+    $("natAlert").checked = st.alertOnCount !== false;
+    $("natAlert").disabled = !st.autoCount;
     $("natCountOn").value = st.countOn || "assign";
     $("natScan").checked = !!st.scanMode;
     $("natScan").disabled = !st.a11y;
@@ -578,6 +594,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natA11yBtn").onclick = () => { try{ NATIVE.openA11ySettings(); }catch(e){ $("natA11yHelp").textContent = "이 기능은 가계부 앱 v2.3 이상에서 돼요. 새 APK를 설치해 주세요."; } };
     $("natShowBar").onchange = e => { NATIVE.setPref("showBar", e.target.checked ? "1" : "0"); renderNative(); };
     $("natAuto").onchange = e => { NATIVE.setPref("autoCount", e.target.checked ? "1" : "0"); renderNative(); renderAutoHint(); };
+    $("natAlert").onchange = e => { NATIVE.setPref("alertOnCount", e.target.checked ? "1" : "0"); renderNative(); };
     $("natScan").onchange = e => { NATIVE.setPref("scanMode", e.target.checked ? "1" : "0"); renderNative(); };
     $("natScanClear").onclick = () => { if(NATIVE.clearScan) NATIVE.clearScan(); renderNative(); };
     $("natCountOn").onchange = e => { NATIVE.setPref("countOn", e.target.value); renderNative(); renderAutoHint(); };
@@ -641,6 +658,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 
   // ---------- render ----------
   function render(){
+    try{ renderCtrStats(); }catch(e){} // 카운터의 오늘 배달료도 저장한 기록에 맞춰 갱신
     const [y,mo] = view.split("-").map(Number);
     $("monthLabel").textContent = y+"년 "+mo+"월";
     $("demoBar").hidden = !demo;
@@ -986,6 +1004,32 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   const ctrCount = s => ctr.log.filter(x => x.s === s).length;
   // 배민 완료 화면에서 읽은 배달료 합계 (안드로이드 앱 v2.5 이상)
   const ctrFee = () => ctr.log.filter(x => x.s === "b").reduce((a, x) => a + (Number(x.f) || 0), 0);
+  // 이번 근무의 배민 금액: 수입 화면에서 읽은 오늘 합계가 있으면 그게 가장 정확해요
+  function ctrBaeminAmount(){
+    const first = ctr.log.length ? ctr.log[0].t : 0;
+    if(ctr.total && ctr.total.amount && ctr.total.t >= first) return {amount: ctr.total.amount, src: "배민 수입 화면 기준"};
+    const fee = ctrFee();
+    const withFee = ctr.log.filter(x => x.s === "b" && x.f).length, all = ctrCount("b");
+    if(fee) return {amount: fee, src: withFee < all ? `완료 화면 ${withFee}건 합계 · ${all - withFee}건은 금액 모름` : `완료 화면 ${withFee}건 합계`};
+    return {amount: 0, src: ""};
+  }
+  function renderCtrStats(){
+    // 오늘 이미 저장한 배민 수입 + 지금 카운터에 쌓인 금액
+    const tday = ymd(new Date());
+    const saved = (months[tday.slice(0,7)] || []).filter(e => e.type === "in" && e.src !== "shop" && e.date === tday);
+    const savedAmt = saved.reduce((a,e) => a + e.amount, 0), savedCnt = saved.reduce((a,e) => a + (e.count || 0), 0);
+    const cur = ctrBaeminAmount();
+    const total = savedAmt + cur.amount;
+    const cnt = savedCnt + ctrCount("b");
+    $("ctrFee").textContent = total ? won(total) : "-";
+    $("ctrFeeSrc").textContent = total
+      ? [savedAmt ? `저장한 ${won(savedAmt)}` : "", cur.src].filter(Boolean).join(" + ")
+      : (NATIVE ? "배달 완료 화면이 뜨면 채워져요" : "퇴근 정리 때 금액을 적으면 보여요");
+    const withFee = cur.src.includes("수입 화면") ? ctrCount("b") : ctr.log.filter(x => x.s === "b" && x.f).length;
+    $("ctrPer").textContent = cur.amount && withFee ? won(cur.amount / withFee) : "-";
+    const h = ctr.log.length ? (Date.now() - ctr.log[0].t) / 3600000 : 0;
+    $("ctrHr").textContent = cur.amount && h >= 0.25 ? won(cur.amount / h) : "-";
+  }
   const ctrHours = () => {
     if(!ctr.log.length) return 0;
     const h = (Date.now() - ctr.log[0].t) / 3600000;
@@ -994,8 +1038,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   function renderCtr(){
     const b = ctrCount("b"), s = ctrCount("s"), has = ctr.log.length > 0;
     $("ctrBm").textContent = b;
-    const fee = ctrFee();
-    $("ctrBmLbl").textContent = fee ? `배민 건 · 배달료 ${won(fee)}` : "배민 건";
+    renderCtrStats();
     $("ctrShopN").textContent = s;
     $("ctrUndo").disabled = !has; $("ctrReset").disabled = !has; $("ctrDone").disabled = !has;
     if(has){
@@ -1072,10 +1115,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         $("fCnt").value = n;
         if(s === "baemin") $("fHrs").value = ctrHours();
         fromCounter = s;
-        const fee = s === "baemin" ? ctrFee() : 0;
+        const cur = s === "baemin" ? ctrBaeminAmount() : {amount: 0, src: ""};
+        const fee = cur.amount;
         if(fee) $("fAmt").value = fee.toLocaleString("ko-KR");
         $("toast").textContent = fee
-          ? `카운터에서 ${n}건, ${ctrHours()}시간, 배달료 ${won(fee)}을 가져왔어요. 프로모션·할증이 있으면 금액을 고쳐서 저장하세요.`
+          ? `카운터에서 ${n}건, ${ctrHours()}시간, ${won(fee)}(${cur.src})을 가져왔어요. 다르면 고쳐서 저장하세요.`
           : `카운터에서 ${n}건${s==="baemin" ? `, ${ctrHours()}시간` : ""}을 가져왔어요. 금액만 적어주세요.`;
       } else $("toast").textContent = "";
     }
