@@ -536,7 +536,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     let items = []; try{ items = JSON.parse(NATIVE.learnJson()); }catch(e){}
     $("natLearnList").innerHTML = items.length
       ? items.slice().reverse().map(x => { const d = new Date(x.t);
-          return `<li><small>${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}${x.counted ? " · <b class=\"c-in\">+1 셌음</b>" : x.matched ? " · 완료로 봤지만 중복이라 안 셈" : ""}</small>${esc(x.title)}${x.text ? " — " + esc(x.text) : ""}</li>`; }).join("")
+          const kind = x.ongoing ? "계속 떠 있는 알림" : "한 번 뜨는 알림";
+          const res = x.counted ? " · <b class=\"c-in\">+1 셌음</b>" : x.matched ? " · 완료 문구 있음 · 안 셈" : "";
+          return `<li><small>${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())} · ${kind}${res}${x.pkg ? " · " + esc(x.pkg) : ""}</small>${esc(x.title)}${x.text ? " — " + esc(x.text) : ""}</li>`; }).join("")
       : `<li class="empty">아직 받은 배민 알림이 없어요.</li>`;
   }
   if(NATIVE){
