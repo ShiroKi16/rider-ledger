@@ -193,6 +193,12 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .bg-em{margin-bottom:6px}
 .bg-split{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
 .sp-list{display:grid;gap:2px}
+.bn-item{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
+.bn-item:first-child{border-top:0;margin-top:0;padding-top:0}
+.bn-item small{display:block;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.bn-item .row{align-items:end}
+.bn-maps{font-size:13px;color:var(--muted);display:grid;gap:4px;margin-top:10px}
+.bn-maps button{border:0;background:transparent;color:var(--muted);padding:0 6px}
 .fx-list{display:grid;gap:6px;background:var(--sunk);border-radius:10px;padding:12px;margin:4px 0 8px}
 .fx-h{display:flex;justify-content:space-between;gap:8px;font-size:14px}
 .fx-chk span:nth-of-type(1){flex:1}
@@ -394,6 +400,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         </div>
       </section>
 
+      <section class="panel" id="bankPanel" aria-labelledby="bnH" hidden>
+        <h2 id="bnH">은행 알림</h2>
+        <div id="bankBody"></div>
+      </section>
+
       <section class="panel" id="budget" aria-labelledby="bgH">
         <h2 id="bgH">돈 나누기</h2>
         <div id="bgBody"></div>
@@ -482,6 +493,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <p class="hint">‘배민 알림 읽기’는 배민커넥트 앱 알림만 봐요. 다른 앱 알림은 읽지도 저장하지도 않아요.</p>
         <label class="chk"><input type="checkbox" id="natShowBar"> 알림바에 카운터 띄우기 (+1 버튼, 운행 시간)</label>
         <label class="chk"><input type="checkbox" id="natAuto"> 배민 배달을 자동으로 세기</label>
+        <label class="chk"><input type="checkbox" id="natBank"> 은행 입출금 알림으로 잔액 맞추기</label>
         <label class="chk"><input type="checkbox" id="natAlert"> 자동으로 셀 때마다 알림 (몇 건째 · 오늘 배달료)</label>
         <label for="natCountOn">무슨 알림으로 셀까요?
           <select id="natCountOn">
@@ -595,6 +607,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natShowBar").checked = !!st.showBar;
     $("natAuto").checked = !!st.autoCount;
     $("natAlert").checked = st.alertOnCount !== false;
+    $("natBank").checked = st.bankWatch !== false;
+    $("natBank").disabled = !st.listener;
     $("natAlert").disabled = !st.autoCount;
     $("natCountOn").value = st.countOn || "assign";
     $("natScan").checked = !!st.scanMode;
@@ -620,13 +634,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natA11yBtn").onclick = () => { try{ NATIVE.openA11ySettings(); }catch(e){ $("natA11yHelp").textContent = "이 기능은 가계부 앱 v2.3 이상에서 돼요. 새 APK를 설치해 주세요."; } };
     $("natShowBar").onchange = e => { NATIVE.setPref("showBar", e.target.checked ? "1" : "0"); renderNative(); };
     $("natAuto").onchange = e => { NATIVE.setPref("autoCount", e.target.checked ? "1" : "0"); renderNative(); renderAutoHint(); };
+    $("natBank").onchange = e => { NATIVE.setPref("bankWatch", e.target.checked ? "1" : "0"); renderNative(); };
     $("natAlert").onchange = e => { NATIVE.setPref("alertOnCount", e.target.checked ? "1" : "0"); renderNative(); };
     $("natScan").onchange = e => { NATIVE.setPref("scanMode", e.target.checked ? "1" : "0"); renderNative(); };
     $("natScanClear").onclick = () => { if(NATIVE.clearScan) NATIVE.clearScan(); renderNative(); };
     $("natCountOn").onchange = e => { NATIVE.setPref("countOn", e.target.value); renderNative(); renderAutoHint(); };
     $("natLearnClear").onclick = () => { NATIVE.clearLearn(); renderNative(); };
     // 설정 화면에 갔다가 돌아오면 상태 다시 읽기
-    window.onNativeResume = () => { renderNative(); if(typeof renderAutoHint === "function") renderAutoHint(); };
+    window.onNativeResume = () => { renderNative(); if(typeof renderAutoHint === "function") renderAutoHint(); if(processBank()) render(); else renderBank(); };
   }
   $("bkSave").onclick = () => {
     const fname = "라이더가계부-백업-" + ymd(new Date()) + ".json";
@@ -722,6 +737,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("goalBar").style.width = pct+"%";
 
     renderBalance();
+    renderBank();
     renderBudget();
     renderChart(es);
     renderWeeks(es);
@@ -733,7 +749,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const n = daysIn(view), W = 640, H = 210, L = 44, R = 8, T = 14, mid = 140, B = 22;
     const inD = Array(n+1).fill(0), outD = Array(n+1).fill(0);
     const shopD = Array(n+1).fill(0);
-    es.forEach(e => { if(e.type==="xfer") return; const d = Number(e.date.slice(8)); (e.type==="in"?inD:outD)[d] += e.amount; if(e.type==="in" && e.src==="shop") shopD[d] += e.amount; });
+    es.forEach(e => { if(e.type!=="in" && e.type!=="out") return; const d = Number(e.date.slice(8)); (e.type==="in"?inD:outD)[d] += e.amount; if(e.type==="in" && e.src==="shop") shopD[d] += e.amount; });
     const maxIn = Math.max(...inD, 1), maxOut = Math.max(...outD, 1);
     const top = niceMax(maxIn);
     const upH = mid - T, dnH = H - B - mid - 6;
@@ -774,8 +790,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const now = {}; accts.forEach(x => now[x.id] = x.amount||0);
     const fallback = payoutId();
     const add = (id, v) => { const k = id in now ? id : fallback; if(k in now) now[k] += v; };
-    Object.values(months).forEach(list => list.forEach(e => {
-      if(!afterBase(e)) return;
+    // 시간 순서대로 더하고 빼요. 은행 알림으로 받은 잔액(bal)은 그 순간의 잔액으로 맞춰요.
+    const when = e => e.at || (Date.parse(e.date + "T12:00:00") || 0);
+    const evs = [];
+    Object.values(months).forEach(list => list.forEach(e => { if(afterBase(e)) evs.push(e); }));
+    evs.sort((a,b) => (when(a) - when(b)) || ((a.type === "bal") - (b.type === "bal")));
+    evs.forEach(e => {
+      if(e.type === "bal"){ if(e.acct in now) now[e.acct] = e.value; return; }
       if(e.type==="in"){
         if(e.src!=="shop" && "pending" in e) return; // 배민 수입은 정산 기록으로 들어옴
         add(e.acct, e.src==="shop" ? e.amount : e.amount*0.967);
@@ -783,7 +804,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       else if(e.type==="settle") add(e.acct, e.amount);
       else if(e.type==="out") add(e.acct, -e.amount);
       else if(e.type==="xfer"){ if(e.from in now) now[e.from] -= e.amount; if(e.to in now) now[e.to] += e.amount; }
-    }));
+    });
     return now;
   }
   function renderBalance(){
@@ -909,6 +930,94 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       editing = false; render(); persistSettings();
     }
   });
+
+  // ---------- 은행 알림 (안드로이드 앱 v2.9 이상) ----------
+  // settings.bankMap = [{pkg, kw, acct}]: 이 앱의 알림(+구분 단어)은 이 통장. acct가 ""이면 무시.
+  // settings.bankDone = 잔액 처리 끝난 알림 id, settings.sugDone = 지출 후보 처리 끝난 알림 id
+  const bankItems = () => { if(!NATIVE || !NATIVE.bankJson) return []; try{ return JSON.parse(NATIVE.bankJson()); }catch(e){ return []; } };
+  const bankMap = () => settings.bankMap || [];
+  function ruleFor(it){
+    const txt = (it.title || "") + " " + (it.text || "");
+    const rs = bankMap().filter(r => r.pkg === it.pkg && (!r.kw || txt.includes(r.kw)));
+    return rs.sort((a,b) => (b.kw ? 1 : 0) - (a.kw ? 1 : 0))[0];
+  }
+  /** 잔액이 적힌 알림으로 통장 잔액을 맞춰요. 바뀐 게 있으면 true */
+  function processBank(){
+    const items = bankItems(); if(!items.length) return false;
+    const done = new Set(settings.bankDone || []);
+    const add = {}; let changed = false;
+    items.forEach(it => {
+      if(done.has(it.id)) return;
+      const r = ruleFor(it); if(!r) return;   // 어느 통장인지 아직 몰라요
+      done.add(it.id); changed = true;
+      if(!r.acct || it.balance == null || it.t <= (settings.baseAt || 0)) return;
+      const d = ymd(new Date(it.t));
+      (add[d.slice(0,7)] = add[d.slice(0,7)] || []).push({id: "bal" + it.id, type: "bal", acct: r.acct, value: it.balance, at: it.t, date: d, memo: it.app});
+    });
+    if(!changed) return false;
+    for(const m in add) months[m] = [...(months[m]||[]), ...add[m]];
+    settings = {...settings, bankDone: [...done].slice(-400)};
+    saveLocal();
+    return true;
+  }
+  const hm = t => { const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  function renderBank(){
+    const panel = $("bankPanel"); if(!panel) return;
+    if(!NATIVE || !NATIVE.bankJson){ panel.hidden = true; return; }
+    const items = bankItems().filter(it => it.t > (settings.baseAt || 0) - 86400000);
+    const sugDone = new Set(settings.sugDone || []);
+    const unmapped = {}; items.forEach(it => { if(!ruleFor(it)) unmapped[it.pkg] = it; });
+    const sugs = items.filter(it => { const r = ruleFor(it); return r && r.acct && it.kind === "out" && it.amount > 0 && !sugDone.has(it.id) && it.t > (settings.baseAt || 0); })
+      .sort((a,b) => b.t - a.t);
+    const accts = settings.accounts || [];
+    const opts = `<option value="">어느 통장인지 고르기</option>` + accts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join("") + `<option value="-">이 알림은 무시하기</option>`;
+    const catOpts = CATS.map(c => `<option>${esc(c)}</option>`).join("");
+    const maps = bankMap();
+    panel.hidden = !(Object.keys(unmapped).length || sugs.length || maps.length);
+    $("bankBody").innerHTML =
+      Object.values(unmapped).map(it => `<div class="bn-item" data-pkg="${esc(it.pkg)}">
+        <div><b>${esc(it.app)}</b> 알림을 처음 받았어요<small>“${esc(it.title)} ${esc(it.text)}”</small></div>
+        <div class="row"><label>어느 통장 알림인가요?<select class="bn-acct">${opts}</select></label>
+          <label>구분 단어 (선택)<input type="text" class="bn-kw" maxlength="20" placeholder="예: 나눠모으기"></label></div>
+        <small>한 앱에서 여러 통장 알림이 오면(토스처럼) 알림에 들어가는 통장 이름을 구분 단어로 적어주세요.</small>
+        <div class="btns"><button type="button" class="ghost primary bn-link">연결</button></div></div>`).join("") +
+      sugs.slice(0, 8).map(it => `<div class="bn-item" data-id="${esc(it.id)}">
+        <div><b>${hm(it.t)} · ${esc(acctName(ruleFor(it).acct))} 출금 ${won(it.amount)}</b><small>${esc(it.title)} ${esc(it.text)}</small></div>
+        <div class="row"><label>분류<select class="bn-cat">${catOpts}</select></label>
+          <div class="btns"><button type="button" class="ghost primary bn-out">지출로 적기</button><button type="button" class="ghost bn-skip">내 통장 이체·무시</button></div></div></div>`).join("") +
+      (sugs.length > 8 ? `<p class="hint">출금 알림 ${sugs.length - 8}건이 더 있어요.</p>` : "") +
+      (maps.length ? `<div class="bn-maps">${maps.map((m,i) => `<div>연결됨: ${esc(m.app || m.pkg)}${m.kw ? ` (“${esc(m.kw)}”)` : ""} → ${m.acct ? esc(acctName(m.acct)) : "무시"}<button type="button" class="bn-unmap" data-i="${i}" aria-label="연결 끊기">✕</button></div>`).join("")}</div>` : "") +
+      (!Object.keys(unmapped).length && !sugs.length && maps.length ? `<p class="hint">새 은행 알림이 오면 여기에 떠요. 잔액이 적힌 알림은 자동으로 통장 잔액을 맞춰요.</p>` : "");
+  }
+  $("bankBody").addEventListener("click", e => {
+    const t = e.target, box = t.closest(".bn-item");
+    if(t.classList.contains("bn-link")){
+      const v = box.querySelector(".bn-acct").value; if(!v){ box.querySelector(".bn-acct").focus(); return; }
+      const it = bankItems().find(x => x.pkg === box.dataset.pkg) || {};
+      const rule = {pkg: box.dataset.pkg, kw: box.querySelector(".bn-kw").value.trim(), acct: v === "-" ? "" : v, app: it.app || ""};
+      settings = {...settings, bankMap: [...bankMap(), rule]};
+      saveLocal(); processBank(); render();
+    }
+    else if(t.classList.contains("bn-out") || t.classList.contains("bn-skip")){
+      const it = bankItems().find(x => x.id === box.dataset.id); if(!it) return;
+      if(t.classList.contains("bn-out")){
+        const d = ymd(new Date(it.t)), m = d.slice(0,7);
+        // 알림 시각으로 적어서, 같은 알림의 잔액 맞춤과 겹쳐 빠지지 않게 해요
+        months[m] = [...(months[m]||[]), {id: "o" + it.id, type: "out", date: d, amount: it.amount, acct: ruleFor(it).acct,
+          cat: box.querySelector(".bn-cat").value, at: it.t, memo: (it.title + " " + it.text).trim().slice(0, 40)}];
+        demo = false;
+        persistMonth(m);
+      }
+      settings = {...settings, sugDone: [...(settings.sugDone || []), it.id].slice(-400)};
+      saveLocal(); render();
+    }
+    else if(t.classList.contains("bn-unmap")){
+      const maps = bankMap().slice(); maps.splice(Number(t.dataset.i), 1);
+      settings = {...settings, bankMap: maps};
+      saveLocal(); render();
+    }
+  });
+  window.onNativeBank = () => { if(processBank()) render(); else renderBank(); };
 
   // ---------- 돈 나누기 (예산) ----------
   // settings.budget = {roles:{income,allowance,savings,emergency,housing}: 통장id,
@@ -1172,6 +1281,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   }
 
   function renderList(es){
+    es = es.filter(e => e.type !== "bal"); // 은행 알림 잔액 맞춤은 목록에 안 보여요
     if(!es.length){ $("list").innerHTML = `<p class="empty">이 달에는 아직 기록이 없어요.</p>`; return; }
     const byDate = {}; es.forEach(e => (byDate[e.date] = byDate[e.date]||[]).push(e));
     const dows = ["일","월","화","수","목","금","토"];
@@ -1496,6 +1606,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // ---------- boot ----------
   function hasData(){ return Object.values(months).some(a => a.length); }
   loadLocal();
+  try{ processBank(); }catch(e){}
   demo = !hasData();
   setStatus("기록은 이 폰 안에만 저장돼요 · 인터넷 없이도 써요");
   render(); renderBackup();
