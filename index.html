@@ -194,6 +194,7 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .bg-split{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
 .sp-list{display:grid;gap:2px}
 .bg-fx{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,.7fr);gap:8px}
+.cat-fix{width:auto;display:block;margin-top:4px;padding:4px 8px;font-size:13px}
 .bn-item{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
 .bn-item:first-child{border-top:0;margin-top:0;padding-top:0}
 .bn-item small{display:block;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
@@ -1145,6 +1146,35 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const rs = bankMap().filter(r => r.pkg === it.pkg && (!r.kw || txt.includes(r.kw)));
     return rs.sort((a,b) => (b.kw ? 1 : 0) - (a.kw ? 1 : 0))[0];
   }
+  // 실제 케이뱅크 알림 (2026-09-26): "승인 3,500원 코아 식자재마트 카드(5222) | 09/26 15:52 출금가능액 79,166원"
+  const CARD_PAY = /승인|결제/;
+  const NOT_CARD = /승인\s*취소|결제\s*취소|환불/;
+  function balanceOf(txt){
+    const m = txt.match(/(?:잔액|출금가능액|출금\s*가능\s*금액|이용가능금액|잔고)\s*:?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,9})\s*원/);
+    return m ? Number(m[1].replace(/,/g, "")) : null;
+  }
+  /** 알림에서 가게 이름 뽑기: "승인 3,500원 <가게> 카드(…)" */
+  function merchantOf(txt){
+    const m = txt.match(/(?:승인|결제)\s*[0-9,]+\s*원\s*(.+?)\s*(?:카드\s*\(|\||출금가능액|잔액|$)/);
+    return m ? m[1].replace(/\s*(일시불|체크|할부.*)$/, "").trim().slice(0, 30) : "";
+  }
+  /** 가게 이름으로 분류 추측: 한 번 고쳐준 가게는 그대로 기억해요 */
+  function guessCat(shop){
+    const learned = (settings.merchantCat || {})[shop];
+    if(learned && CATS.includes(learned)) return learned;
+    const rules = [
+      [/마트|식자재|편의점|GS25|CU|세븐일레븐|이마트|홈플러스|롯데마트|카페|커피|스타벅스|메가|컴포즈|이디야|빽다방|식당|김밥|분식|치킨|피자|버거|맥도날드|롯데리아|베이커리|빵|국밥|배달의민족|쿠팡이츠|요기요/, "식비·카페"],
+      [/자전거|바이크|사이클|정비/, "자전거 정비"],
+      [/보험|렌트|리스/, "보험·렌트"],
+      [/SKT|KT|LG\s*U|통신|알뜰폰/, "통신비"],
+      [/넷플릭스|유튜브|YouTube|Google|구글|Claude|Anthropic|멜론|스포티파이|MYBOX|톡클라우드|구독/, "구독"],
+      [/게임|스팀|Steam|닌텐도|플레이스테이션|넥슨|엔씨|넷마블/, "게임"],
+      [/올리브영|다이소|무신사|쿠팡|11번가|G마켓|옥션|네이버페이/, "쇼핑·여가"]
+    ];
+    for(const [re, c] of rules) if(re.test(shop)) return c;
+    return "기타";
+  }
+
   // 배민 정산금은 "우아한청년들" 이름으로 들어와요 (2026-09-25 토스 내역에서 확인)
   const BAEMIN_PAYER = /우아한청년들|우아한형제들|배달의민족/;
   /** 잔액이 적힌 알림으로 통장 잔액을 맞추고, 배민 정산 입금이면 알아서 정산해요. 바뀐 게 있으면 true */
@@ -1158,8 +1188,18 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       done.add(it.id); changed = true;
       if(!r.acct || it.t <= (settings.baseAt || 0)) return;
       const d = ymd(new Date(it.t)), m = d.slice(0,7);
-      if(it.kind === "in" && it.amount > 0 && BAEMIN_PAYER.test((it.title || "") + " " + (it.text || ""))) autoSettle(it, r.acct);
-      if(it.balance != null) months[m] = [...(months[m]||[]), {id: "bal" + it.id, type: "bal", acct: r.acct, value: it.balance, at: it.t, date: d, memo: it.app}];
+      const txt = (it.title || "") + " " + (it.text || "");
+      if(it.kind === "in" && it.amount > 0 && BAEMIN_PAYER.test(txt)) autoSettle(it, r.acct);
+      // 카드 승인·결제는 바로 지출로 (이체·출금은 내 통장끼리일 수 있어서 후보로 물어봐요)
+      if(it.kind === "out" && it.amount > 0 && CARD_PAY.test(txt) && !NOT_CARD.test(txt) && !(settings.sugDone || []).includes(it.id)){
+        const shop = merchantOf(txt);
+        months[m] = [...(months[m]||[]), {id: "o" + it.id, type: "out", date: d, amount: it.amount, acct: r.acct, cat: guessCat(shop),
+          at: it.t, memo: shop || it.app, auto: true, shop}];
+        settings = {...settings, sugDone: [...(settings.sugDone || []), it.id].slice(-400)};
+        demo = false;
+      }
+      const bal = it.balance != null ? it.balance : balanceOf(txt);
+      if(bal != null) months[m] = [...(months[m]||[]), {id: "bal" + it.id, type: "bal", acct: r.acct, value: bal, at: it.t + 1, date: d, memo: it.app}];
     });
     if(!changed) return false;
     settings = {...settings, bankDone: [...done].slice(-400)};
@@ -1543,7 +1583,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           const where = e.acct && !demo ? acctName(e.acct) : "";
           const sub = [...(e.type==="in" ? [e.count?e.count+"건":"", e.hours?e.hours+"시간":""] : []), e.pending ? "정산 대기" : "", where].filter(Boolean).join(" · ");
           const title = e.type==="in" ? (e.src==="shop"?SHOP():"배민") + (e.memo?" · "+e.memo:"") : (e.cat + (e.memo?" · "+e.memo:""));
-          return `<div class="ent"><span class="tag ${e.type}">${e.type==="in"?"수입":"지출"}</span><span class="memo">${esc(title)}${sub?`<small>${sub}</small>`:""}</span><span class="amt ${e.type==="in"?"c-in":"c-out"}">${e.type==="in"?"+":"−"}${won(e.amount)}</span>${del}</div>`;
+          const catFix = e.type === "out" && e.auto && !demo
+            ? `<select class="cat-fix" data-id="${e.id}" aria-label="분류 바꾸기">${CATS.map(c => `<option${c === e.cat ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>` : "";
+          return `<div class="ent"><span class="tag ${e.type}">${e.type==="in"?"수입":"지출"}</span><span class="memo">${catFix ? esc(e.memo || "") + catFix : esc(title)}${sub?`<small>${sub}${e.auto ? " · 은행 알림으로 자동 기록" : ""}</small>`:(e.auto ? "<small>은행 알림으로 자동 기록</small>" : "")}</span><span class="amt ${e.type==="in"?"c-in":"c-out"}">${e.type==="in"?"+":"−"}${won(e.amount)}</span>${del}</div>`;
         }).join("") + `</div>`;
     }).join("");
   }
@@ -1783,6 +1825,19 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     await persistMonth(m);
   });
 
+  // 자동 기록된 지출의 분류 고치기 → 그 가게는 다음부터 이 분류로 기억
+  $("list").addEventListener("change", ev => {
+    const s = ev.target.closest(".cat-fix"); if(!s) return;
+    for(const m in months){
+      const i = months[m].findIndex(e => e.id === s.dataset.id);
+      if(i < 0) continue;
+      const e = months[m][i];
+      months[m] = months[m].map((x, k) => k === i ? {...x, cat: s.value} : x);
+      if(e.shop) settings = {...settings, merchantCat: {...(settings.merchantCat || {}), [e.shop]: s.value}};
+      persistMonth(m); saveLocal(); render();
+      break;
+    }
+  });
   $("list").addEventListener("click", ev => {
     const b = ev.target.closest(".del"); if(!b) return;
     if(!b.classList.contains("arm")){ b.classList.add("arm"); b.textContent = "정말 삭제"; setTimeout(()=>{ b.classList.remove("arm"); b.textContent="삭제"; }, 3000); return; }
