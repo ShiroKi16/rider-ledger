@@ -1250,7 +1250,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div><b>${esc(it.app)}</b> 알림을 처음 받았어요<small>“${esc(it.title)} ${esc(it.text)}”</small></div>
         <div class="row"><label>어느 통장 알림인가요?<select class="bn-acct">${opts}</select></label>
           <label>구분 단어 (선택)<input type="text" class="bn-kw" maxlength="20" placeholder="예: 나눠모으기"></label></div>
-        <small>한 앱에서 여러 통장 알림이 오면(토스처럼) 알림에 들어가는 통장 이름을 구분 단어로 적어주세요.</small>
+        <small>보통은 구분 단어를 <b>비워두면</b> 돼요. 토스처럼 한 앱에서 여러 통장 알림이 올 때만, 위 알림 문구에 <b>실제로 나오는 글자</b>(예: “나눠모으기”)를 적어주세요.</small>
         <div class="btns"><button type="button" class="ghost primary bn-link">연결</button></div></div>`).join("") +
       sugs.slice(0, 8).map(it => `<div class="bn-item" data-id="${esc(it.id)}">
         <div><b>${hm(it.t)} · ${esc(acctName(ruleFor(it).acct))} 출금 ${won(it.amount)}</b><small>${esc(it.title)} ${esc(it.text)}</small></div>
@@ -1265,7 +1265,15 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(t.classList.contains("bn-link")){
       const v = box.querySelector(".bn-acct").value; if(!v){ box.querySelector(".bn-acct").focus(); return; }
       const it = bankItems().find(x => x.pkg === box.dataset.pkg) || {};
-      const rule = {pkg: box.dataset.pkg, kw: box.querySelector(".bn-kw").value.trim(), acct: v === "-" ? "" : v, app: it.app || ""};
+      const kw = box.querySelector(".bn-kw").value.trim();
+      // 구분 단어는 알림 문구에 실제로 나오는 글자여야 해요 (통장 별명은 알림에 안 나와요)
+      if(kw && !bankItems().some(x => x.pkg === box.dataset.pkg && ((x.title || "") + " " + (x.text || "")).includes(kw))){
+        let w = box.querySelector(".bn-warn");
+        if(!w){ w = document.createElement("p"); w.className = "toast c-out bn-warn"; box.appendChild(w); }
+        w.textContent = `“${kw}”은(는) 이 알림 문구에 없어요. 구분 단어는 비워두거나, 위 알림에 실제로 나오는 글자를 적어주세요.`;
+        return;
+      }
+      const rule = {pkg: box.dataset.pkg, kw, acct: v === "-" ? "" : v, app: it.app || ""};
       settings = {...settings, bankMap: [...bankMap(), rule]};
       saveLocal(); processBank(); render();
     }
