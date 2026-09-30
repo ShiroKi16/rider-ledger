@@ -245,6 +245,7 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .ctr-stats small{color:var(--muted);font-size:12px}
 .ctr-stats b{font-family:var(--mono);font-weight:600;font-size:16px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .ctr-stats .ctr-fee b{font-size:22px;color:var(--in)}
+#ctrTotalClear{justify-self:start;margin-top:6px;padding:6px 12px;font-size:13px}
 .ctr-stats span{color:var(--muted);font-size:11.5px;line-height:1.35}
 .ctr-sub .ghost{touch-action:manipulation}
 .ctr-sub .ghost b{margin-left:2px}
@@ -335,7 +336,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           <button type="button" class="ctr-plus" id="ctrPlus" aria-label="배민 배달 1건 추가">+1<small>배민</small></button>
         </div>
         <div class="ctr-stats" id="ctrStats">
-          <div class="ctr-fee"><small>오늘 배달료</small><b class="num" id="ctrFee">-</b><span id="ctrFeeSrc"></span></div>
+          <div class="ctr-fee"><small>오늘 배달료</small><b class="num" id="ctrFee">-</b><span id="ctrFeeSrc"></span>
+            <button type="button" class="ghost" id="ctrTotalClear" hidden>이 금액이 아니에요</button></div>
           <div><small>건당</small><b class="num" id="ctrPer">-</b></div>
           <div><small>시간당</small><b class="num" id="ctrHr">-</b></div>
         </div>
@@ -1755,6 +1757,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("ctrFeeSrc").textContent = total
       ? [savedAmt ? `저장한 ${won(savedAmt)}` : "", cur.src].filter(Boolean).join(" + ")
       : (NATIVE ? "배달 완료 화면이 뜨면 채워져요" : "퇴근 정리 때 금액을 적으면 보여요");
+    // 수입 화면에서 읽은 금액이 틀렸으면 지울 수 있게
+    const wrong = $("ctrTotalClear");
+    if(wrong) wrong.hidden = !(NATIVE && NATIVE.clearTotal && cur.src.includes("수입 화면"));
     const withFee = cur.src.includes("수입 화면") ? ctrCount("b") : ctr.log.filter(x => x.s === "b" && x.f).length;
     $("ctrPer").textContent = cur.amount && withFee ? won(cur.amount / withFee) : "-";
     const h = ctr.log.length ? (Date.now() - ctr.log[0].t) / 3600000 : 0;
@@ -1805,6 +1810,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
   }
   $("ctrPlus").onclick = () => tap("b");
+  $("ctrTotalClear").onclick = () => { try{ NATIVE.clearTotal(); }catch(e){} nativeCtr(); renderCtr(); };
   $("ctrShop").onclick = () => tap("s");
   $("ctrUndo").onclick = () => { if(ctrOp("undo")) return; ctr.log.pop(); if(!ctr.log.length) ctr.date = ""; saveCtr(); renderCtr(); };
   $("ctrReset").onclick = () => {
