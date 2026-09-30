@@ -121,6 +121,7 @@ input.money{font-family:var(--mono);font-size:18px;font-weight:600}
 .tbl td{padding:8px 4px;border-bottom:1px solid var(--line);text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
 .tbl td:first-child{font-family:var(--body)}
 .tbl tr:last-child td{border-bottom:0}
+.tbl tr.tot td{font-weight:700;border-top:2px solid var(--line)}
 .c-in{color:var(--in)} .c-out{color:var(--out)}
 
 .cats{display:grid;gap:8px}
@@ -431,7 +432,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <h2 id="sumH">이번 달 결산</h2>
         <div class="net"><span class="big num" id="netBig">0원</span><span class="lbl">남은 돈 (수입 − 지출)</span></div>
         <div class="trio">
-          <div class="cell in"><small>번 돈 (배달료 합계)</small><b id="sIn">0원</b></div>
+          <div class="cell in"><small>번 돈 (배달료, 정산 대기 포함)</small><b id="sIn">0원</b></div>
           <div class="cell out"><small>쓴 돈</small><b id="sOut">0원</b></div>
         </div>
         <div class="split" id="srcSplit"></div>
@@ -460,6 +461,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       <section class="panel" aria-labelledby="wkH">
         <h2 id="wkH">주별 정산 (월~일)</h2>
         <div style="overflow-x:auto"><table class="tbl" id="weekTbl"></table></div>
+        <p class="hint" id="weekNote"></p>
       </section>
 
       <section class="panel" aria-labelledby="lsH">
@@ -950,9 +952,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("srcSplit").innerHTML = tIn
       ? `<span><i class="sw" style="background:var(--in)"></i>배민 <b>${won(tBm)}</b></span><span><i class="sw" style="background:var(--accent)"></i>${esc(SHOP())} <b>${won(tShop)}</b></span>`
       : "";
-    $("taxNote").textContent = tBm
-      ? "배민 배달료는 3.3%가 떼이고 들어와서 실제 입금은 약 "+won(tBm*0.967)+(tShop?" + "+SHOP()+" "+won(tShop):"")+" 정도예요. 주유·정비·통신비 같은 지출 기록은 5월 종합소득세 신고 때 경비 자료가 돼요."
-      : "배민 배달료는 사업소득이라 3.3%가 떼이고 들어와요. "+SHOP()+" 배달비는 떼지 않고 계산해요.";
+    // 실제 받는(받을) 금액: 정산된 건 실제 금액, 정산 대기는 지난 정산 비율로 추정
+    const sr = settleRatios();
+    const netAll = ins.reduce((a,e)=>a+netOf(e, sr).v, 0);
+    const pendG = ins.filter(e=>e.pending).reduce((a,e)=>a+e.amount,0);
+    if(pendG) $("srcSplit").innerHTML += `<span>이 중 정산 대기 <b>${won(pendG)}</b></span>`;
+    $("taxNote").textContent = tIn
+      ? `번 돈은 배달한 날 기준 배달료예요(정산 대기 포함, 세금·보험료 떼기 전). 실제로 받는(받을) 돈은 약 ${won(netAll)}이에요 — 배민은 지난 정산 기준 ${(sr.avg*100).toFixed(1)}%가 들어와요. 자전거 정비·장비·통신비 같은 지출 기록은 5월 종합소득세 신고 때 경비 자료가 돼요.`
+      : "배민 배달료는 사업소득이라 세금(3.3%)과 보험료를 떼고 들어와요. "+SHOP()+" 배달비는 떼지 않고 계산해요.";
 
     // goal
     const goal = settings.goal||0;
@@ -1080,16 +1087,16 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       // 배민 정산 내역에서 읽은 확정 금액 (지급예정·정산예정)
       const confirmed = payoutItems().filter(p => p.status !== "지급완료" && list.some(e => e.src !== "shop" && e.date >= p.from && e.date <= p.to));
       const confHtml = confirmed.length ? `<small>배민 확정: ${confirmed.map(p => `${md(p.from)}${p.to !== p.from ? "~" + md(p.to) : ""}분 <b class="num">${won(p.amount)}</b> ${esc(p.status)}`).join(" · ")}</small>` : "";
-      $("pend").innerHTML = `<div class="pend-h"><b>받을 돈 · 배민 정산 대기</b><span class="num">${list.length ? "약 "+won(gross*0.967) : "0원"}</span></div>` +
+      $("pend").innerHTML = `<div class="pend-h"><b>받을 돈 · 배민 정산 대기</b><span class="num">${list.length ? "약 "+won(gross*netRatio()) : "0원"}</span></div>` +
         (list.length
-          ? `<small>${md(list[0].date)}~${md(list[list.length-1].date)} · ${days}일치 배달료 ${won(gross)}에서 3.3%를 뗀 예상 금액이에요. 아직 "지금 내 돈"에는 들어가지 않았어요.</small>
+          ? `<small>${md(list[0].date)}~${md(list[list.length-1].date)} · ${days}일치 배달료 ${won(gross)} × 지난 정산 비율 ${(netRatio()*100).toFixed(1)}%로 계산한 예상 금액이에요. 아직 "지금 내 돈"에는 들어가지 않았어요.</small>
              ${confHtml}
              <div class="btns"><button type="button" class="ghost primary" id="settleOpen">정산 들어왔어요</button></div>`
           : `<small>배민 수입을 적으면 여기에 쌓였다가, 정산이 들어오면 통장으로 옮겨져요.</small>`);
       return;
     }
     const sel = list.filter(e => !pendSkip.has(e.id));
-    const exp = Math.round(sel.reduce((a,e)=>a+e.amount,0)*0.967);
+    const exp = Math.round(sel.reduce((a,e)=>a+e.amount,0)*netRatio());
     $("pend").innerHTML = `<div class="pend-h"><b>이번에 정산된 배달</b><small>빠진 날은 체크를 풀어주세요</small></div>
       <div class="pend-list">${list.map(e => `<label><input type="checkbox" class="p-chk" data-id="${e.id}" ${pendSkip.has(e.id)?"":"checked"}>${md(e.date)}${e.count?` · ${e.count}건`:""}<span class="num">${won(e.amount)}</span></label>`).join("")}</div>
       <div class="row">
@@ -1109,7 +1116,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const id = e.target.dataset.id;
     e.target.checked ? pendSkip.delete(id) : pendSkip.add(id);
     const sel = pendingList().filter(x => !pendSkip.has(x.id));
-    if(!amtTouched){ const v = Math.round(sel.reduce((a,x)=>a+x.amount,0)*0.967); $("setAmt").value = v ? v.toLocaleString("ko-KR") : ""; }
+    if(!amtTouched){ const v = Math.round(sel.reduce((a,x)=>a+x.amount,0)*netRatio()); $("setAmt").value = v ? v.toLocaleString("ko-KR") : ""; }
   });
   $("pend").addEventListener("click", ev => {
     const t = ev.target;
@@ -1292,7 +1299,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     // 오래된 배달부터 더해 가며, 3.3% 뗀 합이 입금액과 가장 가까운 지점까지 묶어요
     const list = pendingList();
     let best = 0, bestDiff = Infinity, sum = 0;
-    list.forEach((e, i) => { sum += e.amount; const diff = Math.abs(sum * 0.967 - A); if(diff < bestDiff){ bestDiff = diff; best = i + 1; } });
+    const nr = netRatio();
+    list.forEach((e, i) => { sum += e.amount; const diff = Math.abs(sum * nr - A); if(diff < bestDiff){ bestDiff = diff; best = i + 1; } });
     if(best && bestDiff > A * 0.2) best = 0; // 너무 안 맞으면 묶지 않고 돈만 기록
     const ids = new Set(list.slice(0, best).map(e => e.id));
     const sid = "s" + it.id;
@@ -1544,18 +1552,23 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("goalPanel").hidden = !!BG(); // 돈 나누기를 쓰면 예전 "저축 목표" 칸은 숨겨요
     if(!BG() || bgEditing){ el.innerHTML = setupHTML(); return; }
     const b = BG(), r = b.roles, bals = acctBalances();
-    const inMonth = monthList().filter(e => e.type === "settle" || (e.type === "in" && e.src === "shop")).reduce((a,e) => a + e.amount, 0);
+    // 실제로 통장에 들어온 돈: 배민 정산금 + 가게 배달비 + 처음부터 입금액으로 적은 배민 기록(정산 대기·정산 처리된 배달료는 제외)
+    const inMonth = monthList().filter(e => e.type === "settle" || (e.type === "in" && (e.src === "shop" || (!e.pending && !e.settleId))))
+      .reduce((a,e) => a + e.amount, 0);
     const fixed = fixedNeed(), incBal = bals[r.income]||0;
     const emBal = bals[r.emergency]||0, goal = b.emergencyGoal||0, pct = goal ? Math.min(100, emBal / goal * 100) : 0;
-    const svM = xferTo(r.savings), hsM = housingIn(), alw = bals[r.allowance]||0;
+    // 저축 통장을 거쳐 비상금으로 넘어간 돈은 저축이 아니라 비상금이에요
+    const toEm = monthList().filter(e => e.type === "xfer" && e.from === r.savings && e.to === r.emergency).reduce((a,e) => a + e.amount, 0);
+    const emM = xferTo(r.emergency);
+    const svM = xferTo(r.savings) - toEm, hsM = housingIn(), alw = bals[r.allowance]||0;
     const sp = splitAmt ? computeSplit(splitAmt, bals) : null;
     const row = (lbl, amt, sub) => `<div class="sp-row"><span>${lbl}${sub ? `<small>${sub}</small>` : ""}</span><b class="num">${won(amt)}</b></div>`;
     const nm = id => acctName(id);
     el.innerHTML = `
       <div class="bg-grid">
-        <div class="cell"><small>이번 달 들어온 돈</small><b>${won(inMonth)}</b></div>
+        <div class="cell"><small>이번 달 실제로 들어온 돈</small><b>${won(inMonth)}</b></div>
         <div class="cell ${incBal >= fixed ? "in" : "out"}"><small>고정지출 준비</small><b>${incBal >= fixed ? "준비됨" : won(fixed - incBal) + " 부족"}</b></div>
-        <div class="cell"><small>이번 달 저축</small><b>${won(svM)}</b></div>
+        <div class="cell"><small>이번 달 모은 돈</small><b>${won(svM + emM)}</b><small>저축 ${won(svM)} · 비상금 ${won(emM)}</small></div>
         <div class="cell"><small>청약 ${won(b.housingMonthly||0)}</small><b>${!b.housingMonthly ? "-" : hsM >= b.housingMonthly ? "넣었어요" : "아직"}</b></div>
       </div>
       <div class="bg-em"><div class="goal-head"><span>비상금 <b class="num">${won(emBal)}</b> / ${won(goal)}</span><span class="num">${Math.round(pct)}%</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>
@@ -1675,21 +1688,64 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   function niceMax(v){ const p = Math.pow(10, Math.floor(Math.log10(v))); for(const m of [1,2,2.5,5,10]) if(m*p >= v) return m*p; return 10*p; }
   function short(v){ return v>=10000 ? (v/10000).toLocaleString("ko-KR",{maximumFractionDigits:1})+"만" : v.toLocaleString("ko-KR"); }
 
+  // ---------- 실수령 비율 ----------
+  // 배민은 3.3% 말고도 보험료 등을 떼고 줘요. 지난 정산에서 실제로 받은 비율을 써요 (9/23~9/27: 89,530 → 83,573).
+  function settleRatios(){
+    const gross = {};
+    Object.values(months).forEach(l => l.forEach(e => { if(e.type === "in" && e.settleId) gross[e.settleId] = (gross[e.settleId] || 0) + e.amount; }));
+    const bySid = {}; let g = 0, a = 0;
+    Object.values(months).forEach(l => l.forEach(e => {
+      if(e.type === "settle" && gross[e.id]){ bySid[e.id] = Math.min(1, e.amount / gross[e.id]); g += gross[e.id]; a += e.amount; }
+    }));
+    return {bySid, avg: g > 0 ? Math.min(1, a / g) : 0.967};
+  }
+  const netRatio = () => settleRatios().avg;
+  /** 수입 기록 한 건이 실제로 통장에 들어오는(올) 금액. est = 아직 정산 전이라 추정인지 */
+  function netOf(e, sr){
+    if(e.src === "shop") return {v: e.amount, est: false};
+    if(e.settleId && sr.bySid[e.settleId]) return {v: e.amount * sr.bySid[e.settleId], est: false};
+    if(e.pending) return {v: e.amount * sr.avg, est: true};
+    return {v: e.amount, est: false}; // 처음부터 입금액으로 적은 기록
+  }
+
   function renderWeeks(es){
     const n = daysIn(view), [y,mo] = view.split("-").map(Number);
     const weeks = []; let cur = null;
     for(let d=1; d<=n; d++){
       const dow = (new Date(y,mo-1,d).getDay()+6)%7; // Mon=0
-      if(!cur || dow===0){ cur = {from:d,to:d,in:0,out:0,cnt:0}; weeks.push(cur); }
+      if(!cur || dow===0){ cur = {from:d,to:d,net:0,out:0,save:0,cnt:0,est:false}; weeks.push(cur); }
       cur.to = d;
     }
+    const sr = settleRatios(), b = settings.budget;
+    // 모은 돈: 저축·비상금·청약 통장으로 들어간 돈 (그 통장들끼리 옮긴 건 빼고, 꺼내 쓴 건 빼요)
+    const saveIds = new Set(b && b.roles ? [b.roles.savings, b.roles.emergency, b.roles.housing].filter(Boolean) : []);
     es.forEach(e => { const d = Number(e.date.slice(8)); const w = weeks.find(w=>d>=w.from&&d<=w.to); if(!w) return;
-      if(e.type==="in"){ w.in+=e.amount; w.cnt+=e.count||0; } else if(e.type==="out") w.out+=e.amount; });
-    let h = `<thead><tr><th>기간</th><th>건수</th><th>수입</th><th>지출</th><th>남은 돈</th></tr></thead><tbody>`;
-    weeks.forEach(w => {
-      h += `<tr><td>${mo}/${w.from}–${mo}/${w.to}</td><td>${w.cnt||"-"}</td><td class="c-in">${w.in?won(w.in):"-"}</td><td class="c-out">${w.out?won(w.out):"-"}</td><td>${(w.in||w.out)?won(w.in-w.out):"-"}</td></tr>`;
+      if(e.type==="in"){ const r = netOf(e, sr); w.net += r.v; w.est = w.est || r.est; w.cnt += e.count||0; }
+      else if(e.type==="out") w.out += e.amount;
+      else if(e.type==="xfer" && saveIds.size){
+        const toS = saveIds.has(e.to), fromS = saveIds.has(e.from);
+        if(toS && !fromS) w.save += e.amount; else if(fromS && !toS) w.save -= e.amount;
+      }
     });
+    const f = v => Math.round(v).toLocaleString("ko-KR");
+    let h = `<thead><tr><th>기간</th><th>건수</th><th>번 돈</th><th>쓴 돈</th>${saveIds.size ? "<th>모은 돈</th>" : ""}<th>남은 돈</th></tr></thead><tbody>`;
+    weeks.forEach(w => {
+      const any = w.net || w.out || w.save;
+      const left = w.net - w.out - w.save;
+      h += `<tr><td>${mo}/${w.from}–${mo}/${w.to}</td><td>${w.cnt||"-"}</td>
+        <td class="c-in">${w.net ? (w.est ? "약 " : "") + f(w.net) : "-"}</td>
+        <td class="c-out">${w.out ? f(w.out) : "-"}</td>
+        ${saveIds.size ? `<td>${w.save ? f(w.save) : "-"}</td>` : ""}
+        <td class="${left < 0 ? "c-out" : ""}">${any ? f(left) : "-"}</td></tr>`;
+    });
+    // 달 합계: 한 주는 지난주 번 돈을 모아서 마이너스로 보일 수 있어서, 한 달 전체도 보여줘요
+    const T = weeks.reduce((s,w) => ({net: s.net + w.net, out: s.out + w.out, save: s.save + w.save, cnt: s.cnt + w.cnt, est: s.est || w.est}), {net:0,out:0,save:0,cnt:0,est:false});
+    const tl = T.net - T.out - T.save;
+    h += `<tr class="tot"><td>${mo}월 합계</td><td>${T.cnt||"-"}</td><td class="c-in">${T.net ? (T.est ? "약 " : "") + f(T.net) : "-"}</td>
+      <td class="c-out">${T.out ? f(T.out) : "-"}</td>${saveIds.size ? `<td>${T.save ? f(T.save) : "-"}</td>` : ""}<td class="${tl < 0 ? "c-out" : ""}">${(T.net||T.out||T.save) ? f(tl) : "-"}</td></tr>`;
     $("weekTbl").innerHTML = h + "</tbody>";
+    $("weekNote").textContent = `단위 원. 번 돈은 세금·보험료를 뗀 실제 받는 금액이에요. 아직 정산 전인 날은 지난 정산 비율(${(sr.avg * 100).toFixed(1)}%)로 추정해요("약").` +
+      (saveIds.size ? " 모은 돈은 저축·비상금·청약 통장으로 옮긴 돈, 남은 돈은 번 돈 − 쓴 돈 − 모은 돈이에요. 정산금은 다음 주에 들어와서 모으기 때문에, 한 주만 보면 마이너스일 수 있어요. 달 합계를 봐주세요." : " 남은 돈은 번 돈 − 쓴 돈이에요.");
   }
 
   function renderCats(outs, total){
