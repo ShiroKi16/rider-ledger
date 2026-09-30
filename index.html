@@ -1150,10 +1150,19 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // settings.bankDone = 잔액 처리 끝난 알림 id, settings.sugDone = 지출 후보 처리 끝난 알림 id
   // 거래 단어가 없는 알림(토스 주식 뉴스·광고 "삼성전자 ○○원" 등)은 은행 알림으로 보지 않아요 (2026-09-30)
   const TX_WORD = /입금|출금|승인|결제|이체|잔액|출금가능액|환불|송금|받았|보냈/;
+  // 포인트·캐시백·이벤트 알림("토스페이 결제 혜택으로 775원 받았어요")도 거래가 아니에요
+  const NOISE = /포인트|적립|혜택|캐시백|이벤트|쿠폰|리워드|광고/;
   const bankItems = () => {
     if(!NATIVE || !NATIVE.bankJson) return [];
-    try{ return JSON.parse(NATIVE.bankJson()).filter(it => TX_WORD.test((it.title || "") + " " + (it.text || ""))); }catch(e){ return []; }
+    try{ return JSON.parse(NATIVE.bankJson()).filter(it => { const s = (it.title || "") + " " + (it.text || ""); return TX_WORD.test(s) && !NOISE.test(s); }); }catch(e){ return []; }
   };
+  /** 이미 내 통장 이체로 적은 거래인지 (반대쪽 통장 알림: 같은 금액, 10분 안) */
+  function xferCovered(it, acct){
+    // 돈 나누기로 미리 적은 이체는 실제 이체가 조금 늦게 해도 같은 거래로 봐요 (하루)
+    return Object.values(months).some(l => l.some(e => e.type === "xfer" && e.amount === it.amount &&
+      (e.from === acct || e.to === acct) &&
+      Math.abs((e.at || 0) - it.t) < ((e.memo || "").startsWith("정산 나누기") ? 86400000 : 600000)));
+  }
   const bankMap = () => settings.bankMap || [];
   function ruleFor(it){
     const txt = (it.title || "") + " " + (it.text || "");
@@ -1290,6 +1299,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     // 확인할 거래: 자동으로 못 적은 출금 + 배민 정산이 아닌 입금 (내 통장끼리 옮긴 돈일 수 있어요)
     const sugs = items.filter(it => { const r = ruleFor(it);
         if(!r || !r.acct || it.amount <= 0 || sugDone.has(it.id) || it.t <= (settings.baseAt || 0)) return false;
+        if(xferCovered(it, r.acct)) return false; // 반대쪽 알림에서 이미 이체로 적었어요
         if(it.kind === "out") return true;
         return it.kind === "in" && !BAEMIN_PAYER.test((it.title || "") + " " + (it.text || "")); })
       .sort((a,b) => b.t - a.t);
@@ -1348,8 +1358,12 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         if(!other) return;
         const d = ymd(new Date(it.t)), m = d.slice(0,7);
         // 알림 시각으로 적어서, 같은 알림의 잔액 맞춤과 겹치지 않게 해요
+        // 이체는 보낸 쪽 알림보다 먼저 일어난 걸로 적어요. 그래야 양쪽 잔액 알림(그 순간의 잔액)과 겹쳐 빠지지 않아요.
+        const pair = bankItems().find(x => x.id !== it.id && x.amount === it.amount && x.kind !== it.kind && Math.abs(x.t - it.t) < 600000);
+        const at = Math.min(it.t, pair ? pair.t : it.t) - 60000;
+        if(pair) settings = {...settings, sugDone: [...(settings.sugDone || []), pair.id].slice(-400)};
         months[m] = [...(months[m]||[]), {id: "x" + it.id, type: "xfer", date: d, amount: it.amount,
-          from: it.kind === "in" ? other : mine, to: it.kind === "in" ? mine : other, at: it.t,
+          from: it.kind === "in" ? other : mine, to: it.kind === "in" ? mine : other, at,
           memo: (it.title + " " + it.text).trim().slice(0, 40)}];
         persistMonth(m);
       }
@@ -1495,6 +1509,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <label>청약에 매달 넣을 돈<input type="text" inputmode="numeric" class="num bg-money" id="bgHousing" value="${n(b.housingMonthly)}" placeholder="0"></label>
         <label>비상금 목표<input type="text" inputmode="numeric" class="num bg-money" id="bgGoal" value="${n(b.emergencyGoal || 1000000)}"></label>
       </div>
+      <label class="chk"><input type="checkbox" id="bgVia" ${(b.emViaSavings !== undefined ? b.emViaSavings : true) ? "checked" : ""}> 비상금은 저축 통장을 거쳐서만 채울 수 있어요 (토스 나눠모으기처럼)</label>
       <label>일주일 용돈 한도 (선택)<input type="text" inputmode="numeric" class="num bg-money" id="bgAlwWeek" value="${n(b.allowanceWeekly)}" placeholder="예: 50,000"></label>
       <h3>남은 돈 나누는 비율 (%)</h3>
       <p class="hint">비상금 목표를 채우기 전</p>
@@ -1547,6 +1562,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           ${row("저축 → " + esc(nm(r.savings)), sp.sv)}
           ${row("용돈 → " + esc(nm(r.allowance)), sp.al)}
         </div>
+        ${emViaSavings() && sp.em > 0 ? `<p class="hint">비상금은 <b>${esc(nm(r.savings))}</b>를 거쳐야 채울 수 있어요: ${esc(nm(r.savings))}로 <b class="num">${won(sp.sv + sp.em)}</b> 보낸 뒤, 그중 <b class="num">${won(sp.em)}</b>을 ${esc(nm(r.emergency))}로 옮겨주세요.</p>` : ""}
         <div class="btns"><button type="button" class="ghost primary" id="spRec">이대로 이체 기록</button></div>
         <p class="hint">기록만 돼요. 실제 이체는 은행 앱에서 해주세요.</p>` : `<p class="hint">정산을 저장하면 여기에 나누는 금액이 자동으로 떠요.</p>`}
       </div>
@@ -1609,18 +1625,27 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     }));
     const now = new Date();
     settings = {...settings, accounts, baseAt: now.getTime(), baseDate: ymd(now),
-      budget: {...(b || {}), roles, fixed, housingMonthly: num("bgHousing"), emergencyGoal: num("bgGoal"), allowanceWeekly: num("bgAlwWeek"), ratiosBefore: rb, ratiosAfter: ra}};
+      budget: {...(b || {}), roles, fixed, housingMonthly: num("bgHousing"), emergencyGoal: num("bgGoal"), allowanceWeekly: num("bgAlwWeek"), emViaSavings: $("bgVia").checked, ratiosBefore: rb, ratiosAfter: ra}};
     bgEditing = false;
     saveLocal(); render();
   }
 
+  /** 비상금 통장을 저축 통장을 거쳐서만 채울 수 있는지 (토스 나눠모으기는 토스뱅크 통장에서만 채워져요) */
+  function emViaSavings(){
+    const b = BG(); if(b.emViaSavings !== undefined) return !!b.emViaSavings;
+    return /토스/.test(acctName(b.roles.emergency)) && /토스/.test(acctName(b.roles.savings));
+  }
   function recordSplit(){
     const b = BG(), r = b.roles, sp = computeSplit(splitAmt, acctBalances());
-    const parts = [[r.housing, sp.h, "청약"], [r.emergency, sp.em, "비상금"], [r.savings, sp.sv, "저축"], [r.allowance, sp.al, "용돈"]];
+    const via = emViaSavings() && sp.em > 0;
+    // [보내는 통장, 받는 통장, 금액, 이름]
+    const parts = via
+      ? [[r.income, r.housing, sp.h, "청약"], [r.income, r.savings, sp.sv + sp.em, "저축+비상금"], [r.savings, r.emergency, sp.em, "비상금"], [r.income, r.allowance, sp.al, "용돈"]]
+      : [[r.income, r.housing, sp.h, "청약"], [r.income, r.emergency, sp.em, "비상금"], [r.income, r.savings, sp.sv, "저축"], [r.income, r.allowance, sp.al, "용돈"]];
     const m = today.slice(0,7), t0 = Date.now();
-    const add = parts.filter(([to, amt]) => to && amt > 0).map(([to, amt, lbl], i) => ({
+    const add = parts.filter(([from, to, amt]) => from && to && amt > 0).map(([from, to, amt, lbl], i) => ({
       id: (t0 + i).toString(36) + Math.random().toString(36).slice(2,5), type: "xfer", date: today,
-      amount: amt, from: r.income, to, at: t0 + i, memo: "정산 나누기 · " + lbl
+      amount: amt, from, to, at: t0 + i, memo: "정산 나누기 · " + lbl
     }));
     if(!add.length) return;
     months[m] = [...(months[m]||[]), ...add];
