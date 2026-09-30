@@ -1392,7 +1392,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       let auto = false;
       const cat = fixedCat(f.name);
       if(!manual && cat){
-        const hit = outs.find(e => !used.has(e.id) && e.cat === cat);
+        // 분류가 같고 금액도 비슷한(±15%) 지출만 그 항목을 낸 걸로 봐요
+        // (예: 케어플러스 5,900원이 "보험·자전거 렌트 100,000원"을 낸 걸로 잡히지 않게)
+        const near = e => !f.amount || Math.abs(e.amount - f.amount) <= f.amount * 0.15;
+        const hit = outs.find(e => !used.has(e.id) && e.cat === cat && near(e));
         if(hit){ used.add(hit.id); auto = true; }
       }
       return {...f, paid: manual || auto, manual, auto};
