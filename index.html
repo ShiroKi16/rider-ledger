@@ -586,6 +586,21 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   function persistSettings(){ saveLocal(); renderBackup(); }
   function setStatus(t){ $("status").textContent = t; }
 
+  /** 돈 나누기 설정의 역할을 통장에 다시 붙여요 (예전 버전의 "실제 잔액으로 맞추기"가 역할을 지웠어요, 2026-09-30) */
+  function fixRoles(){
+    const b = settings.budget; if(!b || !b.roles || !settings.accounts) return false;
+    let changed = false;
+    const accounts = settings.accounts.map(a => {
+      const role = Object.keys(b.roles).find(k => b.roles[k] === a.id);
+      if(!role) return a;
+      const want = {...a, role, ...(role === "housing" ? {longterm: true} : {}), ...(role === "income" ? {payout: true} : {})};
+      if(JSON.stringify(want) !== JSON.stringify(a)) changed = true;
+      return want;
+    });
+    if(changed) settings = {...settings, accounts};
+    return changed;
+  }
+
   // ---------- 클라우드 동기화 (Firebase) ----------
   // 기록은 폰(이 기기)에 먼저 저장하고, 로그인돼 있으면 바뀐 달·설정만 클라우드에 올려요.
   // 다른 기기(PC 등)에서 바뀐 건 실시간으로 받아와요. 로그인한 본인 칸(users/{uid})만 읽고 쓸 수 있어요.
@@ -678,6 +693,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 
   /** 다른 기기에서 온 변경을 이 기기에 저장하고 화면에 반영 (다시 올리지는 않아요) */
   function applyRemote(){
+    fixRoles();
     try{ localStorage.setItem(KEY, JSON.stringify({months, settings})); }catch(e){}
     syncNative();
     demo = !hasData();
@@ -1125,7 +1141,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(e.target.classList.contains("a-amt")){ const v = parseMoney(e.target.value); e.target.value = v ? v.toLocaleString("ko-KR") : ""; }
   });
   function readAcctInputs(){
+    // 역할(role)·장기(longterm) 같은 다른 정보는 그대로 두고 이름·금액만 바꿔요
     return [...$("accts").querySelectorAll(".acct-edit")].map((row,i) => ({
+      ...(settings.accounts[i] || {}),
       id: (settings.accounts[i] && settings.accounts[i].id) || "a"+Date.now().toString(36)+i,
       payout: !!(settings.accounts[i] && settings.accounts[i].payout),
       name: row.querySelector(".a-name").value.trim() || "통장",
@@ -2027,6 +2045,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // ---------- boot ----------
   function hasData(){ return Object.values(months).some(a => a.length); }
   loadLocal();
+  if(fixRoles()) saveLocal();
   try{ processBank(); }catch(e){}
   syncNative();
   renderCloud();
