@@ -430,16 +430,16 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     <div class="page" id="pg-month">
       <section class="panel" aria-labelledby="sumH">
         <h2 id="sumH">이번 달 결산</h2>
-        <div class="net"><span class="big num" id="netBig">0원</span><span class="lbl">남은 돈 (수입 − 지출)</span></div>
+        <div class="net"><span class="big num" id="netBig">0원</span><span class="lbl">남은 돈 (번 돈 − 쓴 돈)</span></div>
         <div class="trio">
-          <div class="cell in"><small>번 돈 (배달료, 정산 대기 포함)</small><b id="sIn">0원</b></div>
+          <div class="cell in"><small>번 돈 (실제 받는 돈)</small><b id="sIn">0원</b></div>
           <div class="cell out"><small>쓴 돈</small><b id="sOut">0원</b></div>
         </div>
         <div class="split" id="srcSplit"></div>
         <div class="stats">
           <div><small>배달 건수</small><span id="sCnt">0건</span></div>
-          <div><small>건당 평균</small><span id="sPer">-</span></div>
-          <div><small>시간당</small><span id="sHr">-</span></div>
+          <div><small>건당 (배달료)</small><span id="sPer">-</span></div>
+          <div><small>시간당 (배달료)</small><span id="sHr">-</span></div>
           <div><small>일한 날</small><span id="sDays">0일</span></div>
         </div>
         <p class="taxnote" id="taxNote"></p>
@@ -937,11 +937,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const cnt = ins.reduce((a,e)=>a+(e.count||0),0);
     const hrs = ins.reduce((a,e)=>a+(e.hours||0),0);
     const workDays = new Set(ins.map(e=>e.date)).size;
-    const net = tIn - tOut;
+    // 번 돈은 실제로 받는(받을) 돈 기준: 세금·보험료를 뗀 금액 (정산 전은 지난 정산 비율로 추정)
+    const sr = settleRatios();
+    const netAll = ins.reduce((a,e)=>a+netOf(e, sr).v, 0);
+    const net = netAll - tOut;
 
     $("netBig").textContent = won(net);
     $("netBig").classList.toggle("neg", net<0);
-    $("sIn").textContent = won(tIn);
+    $("sIn").textContent = (ins.some(e=>e.pending) ? "약 " : "") + won(netAll);
     $("sOut").textContent = won(tOut);
     $("sCnt").textContent = cnt.toLocaleString("ko-KR")+"건";
     const withCnt = ins.filter(e=>e.count>0), withHr = ins.filter(e=>e.hours>0);
@@ -952,13 +955,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("srcSplit").innerHTML = tIn
       ? `<span><i class="sw" style="background:var(--in)"></i>배민 <b>${won(tBm)}</b></span><span><i class="sw" style="background:var(--accent)"></i>${esc(SHOP())} <b>${won(tShop)}</b></span>`
       : "";
-    // 실제 받는(받을) 금액: 정산된 건 실제 금액, 정산 대기는 지난 정산 비율로 추정
-    const sr = settleRatios();
-    const netAll = ins.reduce((a,e)=>a+netOf(e, sr).v, 0);
     const pendG = ins.filter(e=>e.pending).reduce((a,e)=>a+e.amount,0);
-    if(pendG) $("srcSplit").innerHTML += `<span>이 중 정산 대기 <b>${won(pendG)}</b></span>`;
+    if(tIn) $("srcSplit").innerHTML += `<span>배달료 합계 <b>${won(tIn)}</b>${pendG ? ` (정산 대기 ${won(pendG)} 포함)` : ""}</span>`;
     $("taxNote").textContent = tIn
-      ? `번 돈은 배달한 날 기준 배달료예요(정산 대기 포함, 세금·보험료 떼기 전). 실제로 받는(받을) 돈은 약 ${won(netAll)}이에요 — 배민은 지난 정산 기준 ${(sr.avg*100).toFixed(1)}%가 들어와요. 자전거 정비·장비·통신비 같은 지출 기록은 5월 종합소득세 신고 때 경비 자료가 돼요.`
+      ? `번 돈은 세금·보험료를 뗀 실제로 받는(받을) 돈이에요. 배민은 지난 정산 기준 배달료의 ${(sr.avg*100).toFixed(1)}%가 들어와서, 정산 전인 날은 그 비율로 추정해요. 자전거 정비·장비·통신비 같은 지출 기록은 5월 종합소득세 신고 때 경비 자료가 돼요.`
       : "배민 배달료는 사업소득이라 세금(3.3%)과 보험료를 떼고 들어와요. "+SHOP()+" 배달비는 떼지 않고 계산해요.";
 
     // goal
