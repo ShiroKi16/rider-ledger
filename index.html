@@ -1287,7 +1287,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const items = bankItems().filter(it => it.t > (settings.baseAt || 0) - 86400000);
     const sugDone = new Set(settings.sugDone || []);
     const unmapped = {}; items.forEach(it => { if(!ruleFor(it)) unmapped[it.pkg] = it; });
-    const sugs = items.filter(it => { const r = ruleFor(it); return r && r.acct && it.kind === "out" && it.amount > 0 && !sugDone.has(it.id) && it.t > (settings.baseAt || 0); })
+    // 확인할 거래: 자동으로 못 적은 출금 + 배민 정산이 아닌 입금 (내 통장끼리 옮긴 돈일 수 있어요)
+    const sugs = items.filter(it => { const r = ruleFor(it);
+        if(!r || !r.acct || it.amount <= 0 || sugDone.has(it.id) || it.t <= (settings.baseAt || 0)) return false;
+        if(it.kind === "out") return true;
+        return it.kind === "in" && !BAEMIN_PAYER.test((it.title || "") + " " + (it.text || "")); })
       .sort((a,b) => b.t - a.t);
     const accts = settings.accounts || [];
     const opts = `<option value="">어느 통장인지 고르기</option>` + accts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join("") + `<option value="-">이 알림은 무시하기</option>`;
@@ -1299,7 +1303,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     document.querySelectorAll(".bank-nag").forEach(n => {
       n.hidden = !need;
       n.querySelector(".bank-nag-t").textContent = sugs.length
-        ? `은행 알림에서 확인할 출금이 ${sugs.length}건 있어요` : "처음 받은 은행 알림이 있어요. 어느 통장인지 알려주세요";
+        ? `은행 알림에서 확인할 거래가 ${sugs.length}건 있어요` : "처음 받은 은행 알림이 있어요. 어느 통장인지 알려주세요";
     });
     $("bankBody").innerHTML =
       Object.values(unmapped).map(it => `<div class="bn-item" data-pkg="${esc(it.pkg)}">
@@ -1308,11 +1312,15 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           <label>구분 단어 (선택)<input type="text" class="bn-kw" maxlength="20" placeholder="예: 나눠모으기"></label></div>
         <small>보통은 구분 단어를 <b>비워두면</b> 돼요. 토스처럼 한 앱에서 여러 통장 알림이 올 때만, 위 알림 문구에 <b>실제로 나오는 글자</b>(예: “나눠모으기”)를 적어주세요.</small>
         <div class="btns"><button type="button" class="ghost primary bn-link">연결</button></div></div>`).join("") +
-      sugs.slice(0, 8).map(it => `<div class="bn-item" data-id="${esc(it.id)}">
-        <div><b>${hm(it.t)} · ${esc(acctName(ruleFor(it).acct))} 출금 ${won(it.amount)}</b><small>${esc(it.title)} ${esc(it.text)}</small></div>
-        <div class="row"><label>분류<select class="bn-cat">${catOpts}</select></label>
-          <div class="btns"><button type="button" class="ghost primary bn-out">지출로 적기</button><button type="button" class="ghost bn-skip">내 통장 이체·무시</button></div></div></div>`).join("") +
-      (sugs.length > 8 ? `<p class="hint">출금 알림 ${sugs.length - 8}건이 더 있어요.</p>` : "") +
+      sugs.slice(0, 8).map(it => { const mine = ruleFor(it).acct, isIn = it.kind === "in";
+        const others = `<select class="bn-other">${accts.filter(a => a.id !== mine).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>`;
+        return `<div class="bn-item" data-id="${esc(it.id)}">
+        <div><b>${hm(it.t)} · ${esc(acctName(mine))} ${isIn ? "입금" : "출금"} ${won(it.amount)}</b><small>${esc(it.title)} ${esc(it.text)}</small></div>
+        ${isIn ? "" : `<div class="row"><label>쓴 돈이면: 분류<select class="bn-cat">${catOpts}</select></label>
+          <div class="btns"><button type="button" class="ghost primary bn-out">지출로 적기</button></div></div>`}
+        <div class="row"><label>${isIn ? "내 통장에서 옮긴 돈이면: 어느 통장에서?" : "내 통장으로 옮긴 돈이면: 어느 통장으로?"}${others}</label>
+          <div class="btns"><button type="button" class="ghost ${isIn ? "primary " : ""}bn-xfer">내 통장 이체로 기록</button><button type="button" class="ghost bn-skip">무시</button></div></div></div>`; }).join("") +
+      (sugs.length > 8 ? `<p class="hint">확인할 거래가 ${sugs.length - 8}건 더 있어요.</p>` : "") +
       (maps.length ? `<div class="bn-maps">${maps.map((m,i) => `<div>연결됨: ${esc(m.app || m.pkg)}${m.kw ? ` (“${esc(m.kw)}”)` : ""} → ${m.acct ? esc(acctName(m.acct)) : "무시"}<button type="button" class="bn-unmap" data-i="${i}" aria-label="연결 끊기">✕</button></div>`).join("")}</div>` : "") +
       (!Object.keys(unmapped).length && !sugs.length && maps.length ? `<p class="hint">새 은행 알림이 오면 여기에 떠요. 잔액이 적힌 알림은 자동으로 통장 잔액을 맞춰요.</p>` : "");
   }
@@ -1333,8 +1341,18 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       settings = {...settings, bankMap: [...bankMap(), rule]};
       saveLocal(); processBank(); render();
     }
-    else if(t.classList.contains("bn-out") || t.classList.contains("bn-skip")){
+    else if(t.classList.contains("bn-out") || t.classList.contains("bn-skip") || t.classList.contains("bn-xfer")){
       const it = bankItems().find(x => x.id === box.dataset.id); if(!it) return;
+      if(t.classList.contains("bn-xfer")){
+        const mine = ruleFor(it).acct, other = box.querySelector(".bn-other").value;
+        if(!other) return;
+        const d = ymd(new Date(it.t)), m = d.slice(0,7);
+        // 알림 시각으로 적어서, 같은 알림의 잔액 맞춤과 겹치지 않게 해요
+        months[m] = [...(months[m]||[]), {id: "x" + it.id, type: "xfer", date: d, amount: it.amount,
+          from: it.kind === "in" ? other : mine, to: it.kind === "in" ? mine : other, at: it.t,
+          memo: (it.title + " " + it.text).trim().slice(0, 40)}];
+        persistMonth(m);
+      }
       if(t.classList.contains("bn-out")){
         const d = ymd(new Date(it.t)), m = d.slice(0,7);
         // 알림 시각으로 적어서, 같은 알림의 잔액 맞춤과 겹쳐 빠지지 않게 해요
