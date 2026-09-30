@@ -1148,7 +1148,12 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // ---------- 은행 알림 (안드로이드 앱 v2.9 이상) ----------
   // settings.bankMap = [{pkg, kw, acct}]: 이 앱의 알림(+구분 단어)은 이 통장. acct가 ""이면 무시.
   // settings.bankDone = 잔액 처리 끝난 알림 id, settings.sugDone = 지출 후보 처리 끝난 알림 id
-  const bankItems = () => { if(!NATIVE || !NATIVE.bankJson) return []; try{ return JSON.parse(NATIVE.bankJson()); }catch(e){ return []; } };
+  // 거래 단어가 없는 알림(토스 주식 뉴스·광고 "삼성전자 ○○원" 등)은 은행 알림으로 보지 않아요 (2026-09-30)
+  const TX_WORD = /입금|출금|승인|결제|이체|잔액|출금가능액|환불|송금|받았|보냈/;
+  const bankItems = () => {
+    if(!NATIVE || !NATIVE.bankJson) return [];
+    try{ return JSON.parse(NATIVE.bankJson()).filter(it => TX_WORD.test((it.title || "") + " " + (it.text || ""))); }catch(e){ return []; }
+  };
   const bankMap = () => settings.bankMap || [];
   function ruleFor(it){
     const txt = (it.title || "") + " " + (it.text || "");
