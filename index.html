@@ -786,7 +786,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       d.cnt += e.count || 0; d.amt += e.amount; d.hrs += e.hours || 0;
     }));
     return {t: Date.now(), backup: backupJSON(), fixed, days,
-      incomeBal: b ? Math.round(bals[b.roles.income] || 0) : -1, incomeName: b ? acctName(b.roles.income) : ""};
+      incomeBal: b ? Math.round(bals[b.roles.income] || 0) : -1, incomeName: b ? acctName(b.roles.income) : "",
+      splitDays: b ? splitDays() : [], splitPool: b ? splitPool() : 0, lastSplitAt: b ? lastSplitAt() : 0};
   }
   const SHOP = () => settings.shopName || "가게";
 
@@ -1138,10 +1139,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       months[sm] = [...(months[sm]||[]), {id:sid, type:"settle", date:today, amount, acct, at:Date.now(), memo:`배민 정산 ${ids.size}건`}];
       touched.add(sm);
       settling = false; pendSkip = new Set();
-      if(BG()){ splitAmt = amount; splitMsg = "정산금이 들어왔어요. 아래처럼 나눠 옮기면 돼요."; }
+      if(BG()) splitMsg = splitNote(amount);
       render();
       touched.forEach(m => persistMonth(m));
-      if(BG()) setTimeout(() => { try{ $("budget").scrollIntoView({block:"start", behavior:"smooth"}); }catch(e){} }, 60);
+      if(BG() && splitDue()) setTimeout(() => { try{ $("budget").scrollIntoView({block:"start", behavior:"smooth"}); }catch(e){} }, 60);
     }
   });
   $("accts").addEventListener("input", e => {
@@ -1274,7 +1275,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       if(!list.length) return;
       settleEntries(list, p.amount, payoutId(), Date.now(), "p" + key.replace(/[^0-9]/g, ""),
         `배민 정산 ${md(p.from)}${p.to !== p.from ? "~" + md(p.to) : ""} (정산 내역 화면)`);
-      if(BG()){ splitAmt = p.amount; splitMsg = `배민 ${md(p.from)}${p.to !== p.from ? "~" + md(p.to) : ""}분 ${won(p.amount)}이 지급완료됐어요. 아래처럼 나눠 옮기면 돼요.`; }
+      if(BG()) splitMsg = `배민 ${md(p.from)}${p.to !== p.from ? "~" + md(p.to) : ""}분 ` + splitNote(p.amount);
     });
     if(changed){ settings = {...settings, payoutDone: [...done].slice(-200)}; saveLocal(); }
     return changed;
@@ -1310,10 +1311,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const d = ymd(new Date(it.t)), m = d.slice(0,7);
     months[m] = [...(months[m]||[]), {id: sid, type: "settle", date: d, amount: A, acct, at: it.t, auto: true,
       memo: `배민 정산 (우아한청년들) ${ids.size}건`}];
-    if(BG()){
-      splitAmt = A;
-      splitMsg = `우아한청년들에서 ${won(A)}이 들어와서 ${ids.size ? ids.size + "일치 배달을 정산 처리했어요" : "정산금으로 기록했어요"}. 아래처럼 나눠 옮기면 돼요.`;
-    }
+    if(BG()) splitMsg = `우아한청년들 입금으로 ${ids.size ? ids.size + "일치 배달을 정산 처리했어요" : "정산금을 기록했어요"}. ` + splitNote(A);
   }
   const hm = t => { const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   function renderBank(){
@@ -1467,6 +1465,48 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   const xferTo = id => monthList().filter(e => e.type === "xfer" && e.to === id).reduce((a,e) => a + e.amount, 0);
   const floor1k = v => Math.max(0, Math.floor(v / 1000) * 1000);
 
+  // ---------- 나누는 날 (2026-10-04) ----------
+  // 정산금이 들어올 때마다 나누지 않고, 매달 정한 날(기본 9일·19일)에 그동안 모인 정산금을 한 번에 나눠요.
+  const splitDays = () => ((BG().splitDays || []).filter(d => d >= 1 && d <= 28).length ? BG().splitDays : [9, 19]).slice().sort((a,c) => a - c);
+  /** 직전 나누는 날(오늘 포함)과 다음 나누는 날 */
+  function splitSchedule(){
+    const now = new Date(), t = ymd(now), ds = [];
+    for(let k = -1; k <= 2; k++) splitDays().forEach(d => ds.push(ymd(new Date(now.getFullYear(), now.getMonth() + k, d))));
+    ds.sort();
+    return {prev: ds.filter(d => d <= t).pop(), next: ds.find(d => d > t)};
+  }
+  /** 마지막으로 나눈 때 (기록이 없으면 정산 나누기 이체 기록에서 찾아요) */
+  function lastSplitAt(){
+    if(BG().lastSplitAt) return BG().lastSplitAt;
+    let t = 0;
+    Object.values(months).forEach(l => l.forEach(e => { if(e.type === "xfer" && (e.memo || "").startsWith("정산 나누기")) t = Math.max(t, e.at || 0); }));
+    return t;
+  }
+  /** 마지막으로 나눈 뒤 수입 통장에 들어온 돈: 배민 정산금 + 가게 배달비 + 입금액으로 적은 배민 기록 */
+  function splitPool(){
+    const since = lastSplitAt();
+    let s = 0;
+    Object.values(months).forEach(l => l.forEach(e => {
+      const dep = e.type === "settle" || (e.type === "in" && (e.src === "shop" || (!e.pending && !e.settleId)));
+      if(dep && (e.at || Date.parse(e.date)) > since) s += e.amount;
+    }));
+    return Math.max(0, Math.min(s, Math.round(acctBalances()[BG().roles.income] || 0)));
+  }
+  /** 나누는 날이 됐는데 아직 안 나눴는지 */
+  const splitDue = () => { const p = splitSchedule().prev; return !!p && lastSplitAt() < new Date(p + "T00:00:00").getTime(); };
+  const splitNote = A => `정산금 ${won(A)}이 들어왔어요. ` + (splitDue() ? "오늘이 나누는 날이라 아래 나눌 금액에 더했어요." : `${md(splitSchedule().next)}에 모아서 한 번에 나눠요.`);
+  /** 다음 나누는 날까지 빠져나갈 고정지출 중 아직 안 낸 것 (밀린 것 포함, 결제일 안 적은 건 절반만) */
+  function fixedDueBeforeNext(){
+    const next = splitSchedule().next, cm = curMonth();
+    let s = 0;
+    fixedStatus().forEach(f => {
+      if(!f.day){ if(!f.paid) s += Math.ceil((f.amount || 0) / 2); return; }
+      if(!f.paid && cm + "-" + pad(f.day) <= next) s += f.amount || 0;
+      if(next.slice(0,7) > cm && next.slice(0,7) + "-" + pad(f.day) <= next) s += f.amount || 0; // 다음 달 결제분
+    });
+    return s;
+  }
+
   /** 정산금 A를 어떻게 나눌지 계산 (정산금은 이미 수입 통장에 들어왔다고 봐요) */
   /** 이번 주(월요일부터) 용돈 통장에서 쓴 돈: 적은 지출 + 아직 안 정한 은행 출금 알림 */
   function allowanceSpentWeek(){
@@ -1483,14 +1523,15 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   function computeSplit(A, bals){
     const b = BG(), r = b.roles, fixed = fixedNeed();
     let left = A;
-    // 1) 청약: 이번 달 아직 안 넣었으면 먼저
-    const h = Math.min(left, Math.max(0, (b.housingMonthly||0) - housingIn()));
+    // 1) 청약: 이번 달 아직 안 넣었으면 먼저. 한 달 금액을 한 번에 넣어요
+    //    (청약은 한 번에 2만 원 이상만 넣을 수 있어서 14,000원처럼 쪼개 넣으면 안 들어가요)
+    const hNeed = Math.max(0, (b.housingMonthly||0) - housingIn());
+    const h = hNeed && hNeed <= left ? hNeed : 0;
     left -= h;
-    // 2) 고정지출 몫: 한 달 고정지출을 정산 4번에 나눠 남겨두되, 수입 통장에 이미 충분하면 안 남겨요
-    const weekly = Math.ceil(fixedTotal() / 4 / 1000) * 1000;
-    // 정산 전 수입 통장 잔액 (직접 적은 금액이 잔액보다 크면 0으로 봐요)
+    // 2) 고정지출 몫: 다음 나누는 날까지 빠져나갈 고정지출만큼 수입 통장에 남겨요 (이미 충분하면 안 남겨요)
+    // 나누기 전 수입 통장 잔액 (직접 적은 금액이 잔액보다 크면 0으로 봐요)
     const incBefore = Math.max(0, (bals[r.income]||0) - A);
-    const reserve = Math.min(left, weekly, Math.max(0, fixed - incBefore));
+    const reserve = Math.min(left, Math.max(0, fixedDueBeforeNext() - incBefore));
     left -= reserve;
     // 3) 나머지를 비율대로: 비상금을 다 채우기 전과 후가 달라요
     const emBal = bals[r.emergency]||0, goal = b.emergencyGoal||0;
@@ -1500,7 +1541,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     let sv = floor1k(left * (ra.sv||0) / 100);
     if(goal > 0 && em > goal - emBal){ const need = Math.ceil((goal - emBal) / 1000) * 1000; sv += em - need; em = need; }
     const al = left - em - sv;
-    return {h, reserve, em, sv, al, emDone, fixed};
+    return {h, hWait: hNeed && !h ? hNeed : 0, reserve, em, sv, al, emDone, fixed};
   }
 
   function setupHTML(){
@@ -1535,6 +1576,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <label>청약에 매달 넣을 돈<input type="text" inputmode="numeric" class="num bg-money" id="bgHousing" value="${n(b.housingMonthly)}" placeholder="0"></label>
         <label>비상금 목표<input type="text" inputmode="numeric" class="num bg-money" id="bgGoal" value="${n(b.emergencyGoal || 1000000)}"></label>
       </div>
+      <div class="row">
+        <label>정산금 나누는 날 (매달)<input type="number" id="bgSd1" min="1" max="28" value="${(b.splitDays || [9,19])[0] || ""}"></label>
+        <label>한 번 더 (비우면 한 달에 한 번)<input type="number" id="bgSd2" min="1" max="28" value="${(b.splitDays || [9,19])[1] || ""}"></label>
+      </div>
       <label class="chk"><input type="checkbox" id="bgVia" ${(b.emViaSavings !== undefined ? b.emViaSavings : true) ? "checked" : ""}> 비상금은 저축 통장을 거쳐서만 채울 수 있어요 (토스 나눠모으기처럼)</label>
       <label>일주일 용돈 한도 (선택)<input type="text" inputmode="numeric" class="num bg-money" id="bgAlwWeek" value="${n(b.allowanceWeekly)}" placeholder="예: 50,000"></label>
       <h3>남은 돈 나누는 비율 (%)</h3>
@@ -1561,7 +1606,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const toEm = monthList().filter(e => e.type === "xfer" && e.from === r.savings && e.to === r.emergency).reduce((a,e) => a + e.amount, 0);
     const emM = xferTo(r.emergency);
     const svM = xferTo(r.savings) - toEm, hsM = housingIn(), alw = bals[r.allowance]||0;
-    const sp = splitAmt ? computeSplit(splitAmt, bals) : null;
+    const sch = splitSchedule(), due = splitDue(), pool = splitPool();
+    const A = splitAmt || (due ? pool : 0);
+    const sp = A ? computeSplit(A, bals) : null;
     const row = (lbl, amt, sub) => `<div class="sp-row"><span>${lbl}${sub ? `<small>${sub}</small>` : ""}</span><b class="num">${won(amt)}</b></div>`;
     const nm = id => acctName(id);
     el.innerHTML = `
@@ -1583,19 +1630,22 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <p class="hint">이미 빠져나간 건 체크만 해주세요 (잔액은 안 바뀌어요). 앞으로 통신비·보험·렌트·구독을 지출로 적으면 자동으로 체크돼요.</p>
       </div>
       <div class="bg-split">
-        <h3>정산금 나누기</h3>
+        <h3>정산금 나누기 <small>매달 ${splitDays().join("일·")}일</small></h3>
+        ${due ? `<p class="toast">오늘은 나누는 날이에요. 지난번에 나눈 뒤 모인 정산금 <b class="num">${won(pool)}</b>을 아래처럼 옮겨주세요.</p>`
+          : `<p class="hint">다음 나누는 날 <b>${md(sch.next)}</b> · 지금까지 모인 정산금 <b class="num">${won(pool)}</b></p>`}
         ${splitMsg ? `<p class="toast">${esc(splitMsg)}</p>` : ""}
-        <label>나눌 금액 (수입 통장에 들어온 정산금)<input type="text" inputmode="numeric" class="money" id="spAmt" value="${splitAmt ? splitAmt.toLocaleString("ko-KR") : ""}" placeholder="0"></label>
+        <label>나눌 금액 ${due ? "(바꿔도 돼요)" : "(나누는 날 전에 미리 나누려면 적어주세요)"}<input type="text" inputmode="numeric" class="money" id="spAmt" value="${A ? A.toLocaleString("ko-KR") : ""}" placeholder="0"></label>
         ${sp ? `<div class="sp-list">
-          ${row("고정지출 몫 · " + esc(nm(r.income)) + "에 그대로", sp.reserve, sp.reserve ? "" : fixedNeed() === 0 ? "이번 달 고정지출은 다 냈어요" : "통장에 이미 남은 고정지출만큼 있어요")}
+          ${row("고정지출 몫 · " + esc(nm(r.income)) + "에 그대로", sp.reserve, sp.reserve ? md(sch.next) + "까지 빠져나갈 고정지출" : fixedNeed() === 0 ? "이번 달 고정지출은 다 냈어요" : md(sch.next) + "까지 빠져나갈 만큼 통장에 이미 있어요")}
           ${sp.h ? row("청약 → " + esc(nm(r.housing)), sp.h) : ""}
+          ${sp.hWait ? row("청약은 다음에", 0, `${won(sp.hWait)}을 한 번에 넣을 만큼 모이면 넣어요`) : ""}
           ${sp.emDone ? "" : row("비상금 → " + esc(nm(r.emergency)), sp.em)}
           ${row("저축 → " + esc(nm(r.savings)), sp.sv)}
           ${row("용돈 → " + esc(nm(r.allowance)), sp.al)}
         </div>
         ${emViaSavings() && sp.em > 0 ? `<p class="hint">비상금은 <b>${esc(nm(r.savings))}</b>를 거쳐야 채울 수 있어요: ${esc(nm(r.savings))}로 <b class="num">${won(sp.sv + sp.em)}</b> 보낸 뒤, 그중 <b class="num">${won(sp.em)}</b>을 ${esc(nm(r.emergency))}로 옮겨주세요.</p>` : ""}
         <div class="btns"><button type="button" class="ghost primary" id="spRec">이대로 이체 기록</button></div>
-        <p class="hint">기록만 돼요. 실제 이체는 은행 앱에서 해주세요.</p>` : `<p class="hint">정산을 저장하면 여기에 나누는 금액이 자동으로 떠요.</p>`}
+        <p class="hint">기록만 돼요. 실제 이체는 은행 앱에서 해주세요.</p>` : `<p class="hint">나누는 날이 되면 그동안 모인 정산금으로 나누는 금액이 자동으로 떠요.</p>`}
       </div>
       <div class="btns"><button type="button" class="ghost" id="bgEdit">설정 바꾸기</button></div>`;
   }
@@ -1656,7 +1706,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     }));
     const now = new Date();
     settings = {...settings, accounts, baseAt: now.getTime(), baseDate: ymd(now),
-      budget: {...(b || {}), roles, fixed, housingMonthly: num("bgHousing"), emergencyGoal: num("bgGoal"), allowanceWeekly: num("bgAlwWeek"), emViaSavings: $("bgVia").checked, ratiosBefore: rb, ratiosAfter: ra}};
+      budget: {...(b || {}), roles, fixed, housingMonthly: num("bgHousing"), emergencyGoal: num("bgGoal"), allowanceWeekly: num("bgAlwWeek"),
+        splitDays: [...new Set(["bgSd1","bgSd2"].map(id => Math.round(Number($(id).value) || 0)).filter(d => d >= 1 && d <= 28))].sort((a,c) => a - c), emViaSavings: $("bgVia").checked, ratiosBefore: rb, ratiosAfter: ra}};
     bgEditing = false;
     saveLocal(); render();
   }
@@ -1667,7 +1718,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     return /토스/.test(acctName(b.roles.emergency)) && /토스/.test(acctName(b.roles.savings));
   }
   function recordSplit(){
-    const b = BG(), r = b.roles, sp = computeSplit(splitAmt, acctBalances());
+    const A = splitAmt || (splitDue() ? splitPool() : 0);
+    const b = BG(), r = b.roles, sp = computeSplit(A, acctBalances());
     const via = emViaSavings() && sp.em > 0;
     // [보내는 통장, 받는 통장, 금액, 이름]
     const parts = via
@@ -1681,7 +1733,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(!add.length) return;
     months[m] = [...(months[m]||[]), ...add];
     splitAmt = 0;
-    splitMsg = `이체 ${add.length}건을 기록했어요. 은행 앱에서 같은 금액으로 옮겨주세요.`;
+    splitMsg = `이체 ${add.length}건을 기록했어요. 은행 앱에서 같은 금액으로 옮겨주세요. 다음 나누는 날은 ${md(splitSchedule().next)}이에요.`;
+    settings = {...settings, budget: {...BG(), lastSplitAt: t0 + add.length}};
     persistMonth(m); render();
   }
 
