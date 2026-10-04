@@ -1493,7 +1493,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     return Math.max(0, Math.min(s, Math.round(acctBalances()[BG().roles.income] || 0)));
   }
   /** 나누는 날이 됐는데 아직 안 나눴는지 */
-  const splitDue = () => { const p = splitSchedule().prev; return !!p && lastSplitAt() < new Date(p + "T00:00:00").getTime(); };
+  // 나누는 날을 정한 날(10/4) 전의 9/19은 지나간 날로 봐요: 처음 나누는 날은 10/9
+  const SPLIT_START = "2026-10-04";
+  const splitDue = () => { const p = splitSchedule().prev; return !!p && p >= SPLIT_START && lastSplitAt() < new Date(p + "T00:00:00").getTime(); };
   const splitNote = A => `정산금 ${won(A)}이 들어왔어요. ` + (splitDue() ? "오늘이 나누는 날이라 아래 나눌 금액에 더했어요." : `${md(splitSchedule().next)}에 모아서 한 번에 나눠요.`);
   /** 다음 나누는 날까지 빠져나갈 고정지출 중 아직 안 낸 것 (밀린 것 포함, 결제일 안 적은 건 절반만) */
   function fixedDueBeforeNext(){
