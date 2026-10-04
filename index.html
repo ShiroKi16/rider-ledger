@@ -1243,6 +1243,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       const d = ymd(new Date(it.t)), m = d.slice(0,7);
       const txt = (it.title || "") + " " + (it.text || "");
       if(it.kind === "in" && it.amount > 0 && BAEMIN_PAYER.test(txt)) autoSettle(it, r.acct);
+      // 한 번 "가게 배달비"로 정한 사람이 보낸 돈은 자동으로 가게 수입
+      else if(it.kind === "in" && it.amount > 0 && (settings.shopPayers || []).includes(payerOf(txt)) && !(settings.sugDone || []).includes(it.id)) shopDeposit(it, r.acct);
       // 카드 승인·결제는 바로 지출로 (이체·출금은 내 통장끼리일 수 있어서 후보로 물어봐요)
       if(it.kind === "out" && it.amount > 0 && isPayment(txt) && !NOT_CARD.test(txt) && !(settings.sugDone || []).includes(it.id)){
         const shop = merchantOf(txt);
@@ -1313,6 +1315,27 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       memo: `배민 정산 (우아한청년들) ${ids.size}건`}];
     if(BG()) splitMsg = `우아한청년들 입금으로 ${ids.size ? ids.size + "일치 배달을 정산 처리했어요" : "정산금을 기록했어요"}. ` + splitNote(A);
   }
+  // ---------- 가게 배달비 입금 (2026-10-04) ----------
+  // 부모님 가게 배달비는 은행 이체로 들어와요: "MG새마을금고 [입금] 3,000원 9002-… 잔액 49,475원 10/04 19:14 <보낸 사람>"
+  /** 알림 끝에 붙는 보낸 사람 이름 */
+  function payerOf(txt){
+    const m = (txt || "").trim().match(/\d{1,2}:\d{2}\s+([^\s\d|]{2,12})\s*$/);
+    return m ? m[1] : "";
+  }
+  /** 가게 배달비 입금: 이미 같은 날 같은 금액으로 적은 가게 수입이 있으면 그걸로 보고, 없으면 새로 적어요 */
+  function shopDeposit(it, acct){
+    const d = ymd(new Date(it.t)), m = d.slice(0,7);
+    const near = s => Math.abs(Date.parse(s) - Date.parse(d)) <= 86400000;
+    let hit = null;
+    for(const mm in months){
+      const e = months[mm].find(e => e.type === "in" && e.src === "shop" && !e.bankId && e.amount === it.amount && near(e.date));
+      if(e){ hit = e; months[mm] = months[mm].map(x => x === e ? {...x, bankId: it.id} : x); break; }
+    }
+    if(!hit) months[m] = [...(months[m]||[]), {id: "sh" + it.id, type: "in", src: "shop", date: d, amount: it.amount, acct,
+      at: it.t, bankId: it.id, auto: true, memo: "입금 · " + (payerOf(it.title + " " + it.text) || it.app)}];
+    settings = {...settings, sugDone: [...(settings.sugDone || []), it.id].slice(-400)};
+    demo = false;
+  }
   const hm = t => { const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   function renderBank(){
     const panel = $("bankPanel"); if(!panel) return;
@@ -1352,8 +1375,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <div><b>${hm(it.t)} · ${esc(acctName(mine))} ${isIn ? "입금" : "출금"} ${won(it.amount)}</b><small>${esc(it.title)} ${esc(it.text)}</small></div>
         ${isIn ? "" : `<div class="row"><label>쓴 돈이면: 분류<select class="bn-cat">${catOpts}</select></label>
           <div class="btns"><button type="button" class="ghost primary bn-out">지출로 적기</button></div></div>`}
+        ${isIn ? `<div class="btns"><button type="button" class="ghost primary bn-shop">${esc(SHOP())} 배달비로 기록</button></div>
+          ${payerOf(it.title + " " + it.text) ? `<small>다음부터 ${esc(payerOf(it.title + " " + it.text))}님이 보낸 돈은 자동으로 ${esc(SHOP())} 배달비로 적어요.</small>` : ""}` : ""}
         <div class="row"><label>${isIn ? "내 통장에서 옮긴 돈이면: 어느 통장에서?" : "내 통장으로 옮긴 돈이면: 어느 통장으로?"}${others}</label>
-          <div class="btns"><button type="button" class="ghost ${isIn ? "primary " : ""}bn-xfer">내 통장 이체로 기록</button><button type="button" class="ghost bn-skip">무시</button></div></div></div>`; }).join("") +
+          <div class="btns"><button type="button" class="ghost bn-xfer">내 통장 이체로 기록</button><button type="button" class="ghost bn-skip">무시</button></div></div></div>`; }).join("") +
       (sugs.length > 8 ? `<p class="hint">확인할 거래가 ${sugs.length - 8}건 더 있어요.</p>` : "") +
       (maps.length ? `<div class="bn-maps">${maps.map((m,i) => `<div>연결됨: ${esc(m.app || m.pkg)}${m.kw ? ` (“${esc(m.kw)}”)` : ""} → ${m.acct ? esc(acctName(m.acct)) : "무시"}<button type="button" class="bn-unmap" data-i="${i}" aria-label="연결 끊기">✕</button></div>`).join("")}</div>` : "") +
       (!Object.keys(unmapped).length && !sugs.length && maps.length ? `<p class="hint">새 은행 알림이 오면 여기에 떠요. 잔액이 적힌 알림은 자동으로 통장 잔액을 맞춰요.</p>` : "");
@@ -1374,6 +1399,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       const rule = {pkg: box.dataset.pkg, kw, acct: v === "-" ? "" : v, app: it.app || ""};
       settings = {...settings, bankMap: [...bankMap(), rule]};
       saveLocal(); processBank(); render();
+    }
+    else if(t.classList.contains("bn-shop")){
+      const it = bankItems().find(x => x.id === box.dataset.id); if(!it) return;
+      const who = payerOf(it.title + " " + it.text);
+      if(who && !(settings.shopPayers || []).includes(who)) settings = {...settings, shopPayers: [...(settings.shopPayers || []), who]};
+      shopDeposit(it, ruleFor(it).acct);
+      saveLocal(); render();
     }
     else if(t.classList.contains("bn-out") || t.classList.contains("bn-skip") || t.classList.contains("bn-xfer")){
       const it = bankItems().find(x => x.id === box.dataset.id); if(!it) return;
