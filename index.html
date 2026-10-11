@@ -1218,6 +1218,17 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     return it.kind === "out" && Object.values(months).some(l => l.some(e => e.type === "out" && e.acct === acct &&
       e.amount === it.amount && e.id !== "o" + it.id && Math.abs((e.at || 0) - it.t) < 180000));
   }
+  /**
+   * 토스로 결제·송금했는데 돈은 연결된 다른 통장(새마을금고 등)에서 빠져나간 경우:
+   * 토스 앱 알림과 그 통장 알림이 같은 금액으로 1~2분 안에 둘 다 와요 (10/12 7,000원이 두 번 적힘).
+   * 다른 통장의 같은 금액 지출이 3분 안에 있으면 그 기록을 돌려줘요.
+   */
+  const isTossApp = pkg => /viva\.republica\.toss/.test(pkg || "");
+  function crossOut(it, acct){
+    for(const l of Object.values(months)) for(const e of l)
+      if(e.type === "out" && e.auto && e.acct !== acct && e.amount === it.amount && Math.abs((e.at || 0) - it.t) < 180000) return e;
+    return null;
+  }
   const bankMap = () => settings.bankMap || [];
   function ruleFor(it){
     const txt = (it.title || "") + " " + (it.text || "");
@@ -1284,8 +1295,17 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       // 카드 승인·결제는 바로 지출로 (이체·출금은 내 통장끼리일 수 있어서 후보로 물어봐요)
       if(it.kind === "out" && it.amount > 0 && isPayment(txt) && !NOT_CARD.test(txt) && !(settings.sugDone || []).includes(it.id) && !sameOutRecorded(it, r.acct)){
         const shop = merchantOf(txt);
-        months[m] = [...(months[m]||[]), {id: "o" + it.id, type: "out", date: d, amount: it.amount, acct: r.acct, cat: guessCat(shop),
-          at: it.t, memo: shop || it.app, auto: true, shop}];
+        // 토스 결제 + 연결 통장 출금 = 한 번 쓴 돈. 실제로 돈이 빠진 통장(토스 아닌 쪽) 기록만 남겨요.
+        const twin = crossOut(it, r.acct);
+        if(twin && isTossApp(it.pkg)){
+          // 가게 이름은 토스 알림에만 있을 때가 많아서 남겨 둔 기록에 옮겨 줘요
+          if(shop && !twin.shop) for(const mm in months) months[mm] = months[mm].map(x => x === twin ? {...x, shop, memo: shop, cat: guessCat(shop)} : x);
+        } else {
+          if(twin && isTossApp(twin.pkg)) for(const mm in months) months[mm] = months[mm].filter(x => x !== twin);
+          const nm = shop || (twin && twin.shop) || "";
+          months[m] = [...(months[m]||[]), {id: "o" + it.id, type: "out", date: d, amount: it.amount, acct: r.acct, cat: guessCat(nm),
+            at: it.t, memo: nm || it.app, auto: true, shop: nm, pkg: it.pkg}];
+        }
         settings = {...settings, sugDone: [...(settings.sugDone || []), it.id].slice(-400)};
         demo = false;
       }
@@ -1389,6 +1409,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         if(!r || !r.acct || it.amount <= 0 || sugDone.has(it.id) || it.t <= (settings.baseAt || 0)) return false;
         if(xferCovered(it, r.acct)) return false; // 반대쪽 알림에서 이미 이체로 적었어요
         if(sameOutRecorded(it, r.acct)) return false; // 같은 거래 알림이 두 번 왔어요
+        if(it.kind === "out" && isTossApp(it.pkg) && crossOut(it, r.acct)) return false; // 토스로 냈지만 다른 통장에서 빠진 돈
         if(it.kind === "out") return true;
         return it.kind === "in" && !BAEMIN_PAYER.test((it.title || "") + " " + (it.text || "")); })
       .sort((a,b) => b.t - a.t);
