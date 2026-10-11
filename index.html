@@ -239,6 +239,8 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .ctr-plus small{font-family:var(--body);font-size:13px;font-weight:700}
 .ctr-plus:active{transform:translateY(2px);box-shadow:0 1px 0 var(--accent-ink)}
 .ctr-sub{display:flex;gap:8px;flex-wrap:wrap}
+.cp-miss{display:grid;gap:6px;margin-top:10px}
+.cp-miss div{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;background:var(--sunk);border-radius:10px;padding:8px 10px}
 .ctr-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ctr-stats .ctr-fee{grid-column:1/-1}
 .ctr-stats b{white-space:nowrap}
@@ -349,6 +351,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           <button type="button" class="ghost" id="ctrReset" disabled>초기화</button>
         </div>
         <button type="button" class="ghost primary ctr-done" id="ctrDone" disabled>퇴근 정리 · 금액만 적으면 끝</button>
+        <div class="cp-miss" id="cpMiss" hidden></div>
         <p class="hint" id="ctrAuto" hidden></p>
       </section>
 
@@ -1985,8 +1988,18 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   const ctrCount = s => ctr.log.filter(x => x.s === s).length;
   // 배민 완료 화면에서 읽은 배달료 합계 (안드로이드 앱 v2.5 이상)
   const ctrFee = (s = "b") => ctr.log.filter(x => x.s === s).reduce((a, x) => a + (Number(x.f) || 0), 0);
-  // 쿠팡이츠 금액: 완료 화면에서 읽은 배달료 합계 (앱 v2.14 이상, 쿠팡 화면 문구 확인 전에는 비어 있을 수 있어요)
+  // 쿠팡이츠 "내 수입" 화면에서 읽은 날짜별 건수·금액 (앱 v2.15 이상) 중 아직 가계부에 안 적은 만큼
+  function cpUnsaved(date){
+    const day = ctr.cdays && ctr.cdays[date]; if(!day) return null;
+    const saved = (months[date.slice(0,7)] || []).filter(e => e.type === "in" && srcOf(e) === "coupang" && e.date === date);
+    const cnt = day.cnt - saved.reduce((a,e) => a + (e.count || 0), 0), amt = day.amt - saved.reduce((a,e) => a + e.amount, 0);
+    return amt > 0 ? {date, cnt: Math.max(0, cnt), amt} : null;
+  }
+  const cpMissing = () => Object.keys(ctr.cdays || {}).sort().map(cpUnsaved).filter(Boolean);
+  // 쿠팡이츠 금액: 내 수입 화면 기준이 있으면 그걸, 없으면 완료 화면에서 읽은 배달료 합계
   function ctrCoupangAmount(){
+    const u = cpUnsaved(ymd(new Date()));
+    if(u) return {amount: u.amt, src: "쿠팡 내 수입 화면 기준", cnt: u.cnt};
     const fee = ctrFee("c"), withFee = ctr.log.filter(x => x.s === "c" && x.f).length, all = ctrCount("c");
     if(fee) return {amount: fee, src: withFee < all ? `쿠팡 완료 화면 ${withFee}건 · ${all - withFee}건은 금액 모름` : `쿠팡 완료 화면 ${withFee}건`};
     return {amount: 0, src: ""};
@@ -2032,7 +2045,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     renderCtrStats();
     $("ctrShopN").textContent = s;
     $("ctrCpN").textContent = ctrCount("c");
-    $("ctrUndo").disabled = !has; $("ctrReset").disabled = !has; $("ctrDone").disabled = !has;
+    $("ctrUndo").disabled = !has; $("ctrReset").disabled = !has; $("ctrDone").disabled = !has && !cpUnsaved(ymd(new Date()));
+    // 쿠팡 내 수입 화면에는 있는데 가계부에 아직 없는 날 (오늘 것은 퇴근 정리로)
+    const miss = cpMissing().filter(u => u.date !== ymd(new Date())).slice(-3);
+    $("cpMiss").hidden = !miss.length;
+    $("cpMiss").innerHTML = miss.map(u => `<div><span>쿠팡 내 수입 화면에 <b>${md(u.date)} ${u.cnt ? u.cnt + "건 " : ""}${won(u.amt)}</b>이 더 있어요</span><button type="button" class="ghost" data-cpd="${u.date}">가계부에 적기</button></div>`).join("");
     if(has){
       const f = new Date(ctr.log[0].t), mins = Math.round((Date.now() - ctr.log[0].t) / 60000);
       const dur = mins >= 60 ? `${Math.floor(mins/60)}시간 ${mins%60}분` : `${mins}분`;
@@ -2049,7 +2066,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(!st.autoCount){ el.textContent = "배민 자동 카운트가 꺼져 있어요. ⚙ 메뉴에서 켤 수 있어요."; return; }
     if(st.countOn === "screen"){
       el.textContent = st.a11y ? "배민커넥트 배달 완료 화면이 뜨면 자동으로 +1 하고 배달료도 더해요." +
-          (NATIVE.version && Number(NATIVE.version().split(".")[1]) >= 14 ? " 쿠팡이츠도 배달 완료 화면으로 세요(아직 문구를 맞추는 중이라 틀리면 ‘되돌리기’)." : " 쿠팡이츠는 아직 +1 쿠팡을 눌러주세요.") + " 알림바에서도 +1을 누를 수 있어요."
+          (NATIVE.version && Number(NATIVE.version().split(".")[1]) >= 15 ? " 쿠팡이츠는 퇴근 전에 쿠팡 앱의 ‘내 수입’ 화면을 한 번 열면 오늘 건수·금액을 그대로 가져와요."
+            : NATIVE.version && Number(NATIVE.version().split(".")[1]) >= 14 ? " 쿠팡이츠도 배달 완료 버튼으로 세요(아직 문구를 맞추는 중이라 틀리면 ‘되돌리기’)." : " 쿠팡이츠는 아직 +1 쿠팡을 눌러주세요.") + " 알림바에서도 +1을 누를 수 있어요."
         : "⚙ 메뉴에서 ‘배민 화면 감지’를 켜면 배달완료를 누를 때 자동으로 세요.";
       return;
     }
@@ -2071,6 +2089,17 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   $("ctrTotalClear").onclick = () => { try{ NATIVE.clearTotal(); }catch(e){} nativeCtr(); renderCtr(); };
   $("ctrShop").onclick = () => tap("s");
   $("ctrCp").onclick = () => tap("c");
+  // 지난날 쿠팡 수입을 화면에서 읽은 그대로 적어요 (정산 대기)
+  $("cpMiss").onclick = async ev => {
+    const d = ev.target.dataset && ev.target.dataset.cpd; if(!d) return;
+    const u = cpUnsaved(d); if(!u) return;
+    const m = d.slice(0,7);
+    months[m] = [...(months[m]||[]), {id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), type: "in", src: "coupang", pending: true,
+      date: d, amount: u.amt, acct: payoutId(), at: Date.now(), memo: "쿠팡 내 수입 화면", ...(u.cnt ? {count: u.cnt} : {})}];
+    demo = false;
+    render(); renderCtr();
+    await persistMonth(m);
+  };
   $("ctrUndo").onclick = () => { if(ctrOp("undo")) return; ctr.log.pop(); if(!ctr.log.length) ctr.date = ""; saveCtr(); renderCtr(); };
   $("ctrReset").onclick = () => {
     const b = $("ctrReset");
@@ -2103,22 +2132,27 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     } else {
       const s = q === "shop" ? "shop" : q === "cp" ? "coupang" : "baemin", code = SRC_CODE[s];
       pickSrc(s);           // 수입 탭으로 바꾸고 수입처 선택
-      const n = ctrCount(code);
-      $("fDate").value = n ? ctr.date : today;
+      let n = ctrCount(code);
+      // 쿠팡: 내 수입 화면에서 읽은 건수가 있으면 그게 더 정확해요 (카운터는 놓친 게 있을 수 있어요)
+      const cpu = s === "coupang" ? cpUnsaved(n ? ctr.date : today) : null;
+      if(cpu && cpu.cnt) n = cpu.cnt;
+      $("fDate").value = cpu ? cpu.date : n ? ctr.date : today;
       $("fAcct").value = payoutId();
-      if(n){
-        $("fCnt").value = n;
+      if(n || cpu){
+        $("fCnt").value = n || "";
         const ride = s !== "shop";
-        if(ride) $("fHrs").value = ctrHours();
+        if(ride && ctr.log.length) $("fHrs").value = ctrHours();
         fromCounter = s;
-        const cur = s === "baemin" ? ctrBaeminAmount() : s === "coupang" ? ctrCoupangAmount() : {amount: 0, src: ""};
+        const cur = s === "baemin" ? ctrBaeminAmount() : cpu ? {amount: cpu.amt, src: "쿠팡 내 수입 화면 기준"} : s === "coupang" ? ctrCoupangAmount() : {amount: 0, src: ""};
         const fee = cur.amount;
         if(fee) $("fAmt").value = fee.toLocaleString("ko-KR");
         // 배민·쿠팡을 같이 탔으면 운행 시간은 한쪽에만 적어야 시간당이 두 번 나뉘지 않아요
         const both = ctrCount("b") && ctrCount("c");
         const hrsSaved = (months[ctr.date.slice(0,7)] || []).some(e => e.type === "in" && srcOf(e) === "baemin" && e.date === ctr.date && e.hours);
         if(s === "coupang" && (both || hrsSaved)) $("fHrs").value = "";
-        $("toast").textContent = (fee
+        $("toast").textContent = (cpu
+          ? `쿠팡 내 수입 화면에서 ${md(cpu.date)} ${n}건, ${won(fee)}을 가져왔어요${cpu.amt < (ctr.cdays[cpu.date] || {}).amt ? " (이미 적은 만큼은 뺐어요)" : ""}. 맞으면 저장하세요.`
+          : fee
           ? `카운터에서 ${n}건${ride && $("fHrs").value ? `, ${ctrHours()}시간` : ""}, ${won(fee)}(${cur.src})을 가져왔어요. 다르면 고쳐서 저장하세요.`
           : `카운터에서 ${n}건${ride && $("fHrs").value ? `, ${ctrHours()}시간` : ""}을 가져왔어요. ${srcName(s)} 앱에 찍힌 금액만 적어주세요.`) +
           (both && s === "baemin" ? " 쿠팡이츠는 저장한 뒤 퇴근 정리를 한 번 더 누르면 돼요." : "");
@@ -2129,7 +2163,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   }
   document.querySelector(".quick").onclick = e => { const b = e.target.closest("button[data-q]"); if(b) quick(b.dataset.q); };
   // 퇴근 정리: 배민 → 쿠팡 → 가게 순서로 하나씩 (저장하면 그 숫자가 0이 되고 다음 것으로)
-  $("ctrDone").onclick = () => quick(ctrCount("b") ? "bm" : ctrCount("c") ? "cp" : "shop");
+  $("ctrDone").onclick = () => quick(ctrCount("b") ? "bm" : ctrCount("c") || cpUnsaved(ymd(new Date())) ? "cp" : "shop");
   renderCtr();
   // 앱을 다시 열면 경과 시간 갱신
   document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") renderCtr(); });
@@ -2156,6 +2190,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     render();
     $("fAmt").value = ""; $("fCnt").value = ""; $("fHrs").value = ""; $("fMemo").value = "";
     $("toast").textContent = {in:"수입 ",out:"지출 ",x:"이체 "}[mode] + won(amount) + " 저장했어요." + ctrAfterSave(e);
+    renderCtr();
     await persistMonth(m);
   });
 
