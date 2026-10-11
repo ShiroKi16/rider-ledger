@@ -1210,6 +1210,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       (e.from === acct || e.to === acct) &&
       Math.abs((e.at || 0) - it.t) < ((e.memo || "").startsWith("정산 나누기") ? 86400000 : 600000)));
   }
+  /**
+   * 같은 통장·같은 금액의 지출이 3분 안에 이미 적혀 있는지.
+   * MG더뱅킹은 한 출금에 알림을 두 번 보낼 때가 있어서 3,800원이 두 번 적힌 적이 있어요 (2026-10-09).
+   */
+  function sameOutRecorded(it, acct){
+    return it.kind === "out" && Object.values(months).some(l => l.some(e => e.type === "out" && e.acct === acct &&
+      e.amount === it.amount && e.id !== "o" + it.id && Math.abs((e.at || 0) - it.t) < 180000));
+  }
   const bankMap = () => settings.bankMap || [];
   function ruleFor(it){
     const txt = (it.title || "") + " " + (it.text || "");
@@ -1274,7 +1282,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       // 한 번 "가게 배달비"로 정한 사람이 보낸 돈은 자동으로 가게 수입
       else if(it.kind === "in" && it.amount > 0 && (settings.shopPayers || []).includes(payerOf(txt)) && !(settings.sugDone || []).includes(it.id)) shopDeposit(it, r.acct);
       // 카드 승인·결제는 바로 지출로 (이체·출금은 내 통장끼리일 수 있어서 후보로 물어봐요)
-      if(it.kind === "out" && it.amount > 0 && isPayment(txt) && !NOT_CARD.test(txt) && !(settings.sugDone || []).includes(it.id)){
+      if(it.kind === "out" && it.amount > 0 && isPayment(txt) && !NOT_CARD.test(txt) && !(settings.sugDone || []).includes(it.id) && !sameOutRecorded(it, r.acct)){
         const shop = merchantOf(txt);
         months[m] = [...(months[m]||[]), {id: "o" + it.id, type: "out", date: d, amount: it.amount, acct: r.acct, cat: guessCat(shop),
           at: it.t, memo: shop || it.app, auto: true, shop}];
@@ -1380,6 +1388,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const sugs = items.filter(it => { const r = ruleFor(it);
         if(!r || !r.acct || it.amount <= 0 || sugDone.has(it.id) || it.t <= (settings.baseAt || 0)) return false;
         if(xferCovered(it, r.acct)) return false; // 반대쪽 알림에서 이미 이체로 적었어요
+        if(sameOutRecorded(it, r.acct)) return false; // 같은 거래 알림이 두 번 왔어요
         if(it.kind === "out") return true;
         return it.kind === "in" && !BAEMIN_PAYER.test((it.title || "") + " " + (it.text || "")); })
       .sort((a,b) => b.t - a.t);
@@ -1512,11 +1521,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       const manual = paidChecks().includes(f.name);
       let auto = false;
       const cat = fixedCat(f.name);
-      if(!manual && cat){
+      if(!manual){
         // 분류가 같고 금액도 비슷한(±15%) 지출만 그 항목을 낸 걸로 봐요
         // (예: 케어플러스 5,900원이 "보험·자전거 렌트 100,000원"을 낸 걸로 잡히지 않게)
         const near = e => !f.amount || Math.abs(e.amount - f.amount) <= f.amount * 0.15;
-        const hit = outs.find(e => !used.has(e.id) && e.cat === cat && near(e));
+        // 분류가 달라도 금액이 똑같고 결제일 앞뒤 이틀 안이면 그 항목이에요
+        // (MYBOX 3,800원은 10일 결제인데 9일에 통장에서 먼저 빠져나가요, 2026-10-11 확인)
+        const sameDay = e => f.day && f.amount && e.amount === f.amount && Math.abs(Number(e.date.slice(8)) - f.day) <= 2;
+        const hit = outs.find(e => !used.has(e.id) && ((cat && e.cat === cat && near(e)) || sameDay(e)));
         if(hit){ used.add(hit.id); auto = true; }
       }
       return {...f, paid: manual || auto, manual, auto};
