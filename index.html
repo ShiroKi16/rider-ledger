@@ -18,7 +18,7 @@
 :root{
   --bg:#F1F2EE; --surface:#FFFFFF; --sunk:#E6E8E3; --line:#D5D9D3;
   --ink:#1C2326; --muted:#687276; --accent:#E3A000; --accent-ink:#8A6100; --accent-soft:#FBEFCB;
-  --in:#1F8A5B; --in-soft:#DDF0E6; --out:#C4463A; --out-soft:#F7E0DC;
+  --in:#1F8A5B; --in-soft:#DDF0E6; --out:#C4463A; --out-soft:#F7E0DC; --cp:#2B6FD0;
   --display:"Black Han Sans","IBM Plex Sans KR",sans-serif;
   --body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
@@ -28,14 +28,14 @@
     color-scheme:dark;
     --bg:#131819; --surface:#1C2225; --sunk:#252D30; --line:#323B3F;
     --ink:#E7EBE9; --muted:#96A0A4; --accent:#F2B82E; --accent-ink:#F2B82E; --accent-soft:#3A3117;
-    --in:#4CC08A; --in-soft:#18362A; --out:#EE7B6E; --out-soft:#3F2320;
+    --in:#4CC08A; --in-soft:#18362A; --out:#EE7B6E; --out-soft:#3F2320; --cp:#6EA6F2;
   }
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
   --bg:#131819; --surface:#1C2225; --sunk:#252D30; --line:#323B3F;
   --ink:#E7EBE9; --muted:#96A0A4; --accent:#F2B82E; --accent-ink:#F2B82E; --accent-soft:#3A3117;
-  --in:#4CC08A; --in-soft:#18362A; --out:#EE7B6E; --out-soft:#3F2320;
+  --in:#4CC08A; --in-soft:#18362A; --out:#EE7B6E; --out-soft:#3F2320; --cp:#6EA6F2;
 }
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;padding-inline:16px;padding-block:20px 48px}
@@ -343,6 +343,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           <div><small>시간당</small><b class="num" id="ctrHr">-</b></div>
         </div>
         <div class="ctr-sub">
+          <button type="button" class="ghost" id="ctrCp">+1 쿠팡 <b class="num" id="ctrCpN">0</b></button>
           <button type="button" class="ghost" id="ctrShop">+1 <span class="shop-name">가게</span> <b class="num" id="ctrShopN">0</b></button>
           <button type="button" class="ghost" id="ctrUndo" disabled>되돌리기</button>
           <button type="button" class="ghost" id="ctrReset" disabled>초기화</button>
@@ -355,6 +356,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <h2 id="addH">기록하기</h2>
         <div class="quick" role="group" aria-label="빠른 입력">
           <button type="button" data-q="bm">오늘 배민</button>
+          <button type="button" data-q="cp">오늘 쿠팡</button>
           <button type="button" data-q="shop">오늘 <span class="shop-name">가게</span></button>
           <button type="button" data-q="food">식비</button>
         </div>
@@ -377,6 +379,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
             <label style="margin-bottom:6px">어디 배달?</label>
             <div class="chips" id="srcChips">
               <button type="button" data-src="baemin" aria-pressed="true">배민</button>
+              <button type="button" data-src="coupang" aria-pressed="false">쿠팡이츠</button>
               <button type="button" data-src="shop" aria-pressed="false"><span class="shop-name">가게</span></button>
             </div>
           </div>
@@ -500,12 +503,12 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       <div class="bk nat" id="natBox" hidden>
         <h3>알림바 카운터 · 배민 자동 카운트</h3>
         <div class="nat-row"><span>알림 보내기 권한</span><b id="natNotif"></b><button type="button" class="ghost" id="natNotifBtn">설정 열기</button></div>
-        <div class="nat-row"><span>배민 알림 읽기</span><b id="natListen"></b><button type="button" class="ghost" id="natListenBtn">허용하러 가기</button></div>
-        <div class="nat-row"><span>배민 화면 감지 (배달완료 누름)</span><b id="natA11y"></b><button type="button" class="ghost" id="natA11yBtn">켜러 가기</button></div>
-        <p class="hint" id="natA11yHelp" hidden>설정 → <b>설치된 앱</b>(또는 설치된 서비스) → <b>가계부 배달완료 감지</b> → 켜기. 배민커넥트 앱의 버튼과 화면 전환만 보고, 화면 내용은 저장하지 않아요.</p>
-        <p class="hint">‘배민 알림 읽기’는 배민커넥트 앱 알림만 봐요. 다른 앱 알림은 읽지도 저장하지도 않아요.</p>
+        <div class="nat-row"><span>배민·쿠팡 알림 읽기</span><b id="natListen"></b><button type="button" class="ghost" id="natListenBtn">허용하러 가기</button></div>
+        <div class="nat-row"><span>배민·쿠팡 화면 감지 (배달 완료)</span><b id="natA11y"></b><button type="button" class="ghost" id="natA11yBtn">켜러 가기</button></div>
+        <p class="hint" id="natA11yHelp" hidden>설정 → <b>설치된 앱</b>(또는 설치된 서비스) → <b>가계부 배달완료 감지</b> → 켜기. 배민커넥트·쿠팡이츠 배달 파트너 앱의 버튼과 화면 전환만 보고, 화면 내용은 저장하지 않아요.</p>
+        <p class="hint">‘배민·쿠팡 알림 읽기’는 배민커넥트·쿠팡이츠 배달 파트너 앱과 은행 앱 알림만 봐요. 다른 앱 알림은 읽지도 저장하지도 않아요.</p>
         <label class="chk"><input type="checkbox" id="natShowBar"> 알림바에 카운터 띄우기 (+1 버튼, 운행 시간)</label>
-        <label class="chk"><input type="checkbox" id="natAuto"> 배민 배달을 자동으로 세기</label>
+        <label class="chk"><input type="checkbox" id="natAuto"> 배민·쿠팡 배달을 자동으로 세기</label>
         <label class="chk"><input type="checkbox" id="natBackup"> 매일 밤 자동 백업 (다운로드 폴더)</label>
         <label class="chk"><input type="checkbox" id="natDue"> 고정지출 결제일 전날 알림</label>
         <label class="chk"><input type="checkbox" id="natWeekly"> 일요일 밤 주간 리포트</label>
@@ -520,7 +523,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           </select>
         </label>
         <p class="hint">배민커넥트는 배달 완료 알림을 따로 보내지 않아요. 화면 감지를 켜면 ‘배달완료’를 누를 때 세고, 안 켜면 배정 알림으로 세요(배정이 취소되면 ‘되돌리기’).</p>
-        <label class="chk"><input type="checkbox" id="natScan"> 배민 화면 금액 수집 (수입 자동 읽기 준비용)</label>
+        <label class="chk"><input type="checkbox" id="natScan"> 배민·쿠팡 화면 금액 수집 (수입 자동 읽기 준비용)</label>
         <details id="natScanBox">
           <summary>모은 금액 (<span id="natScanN">0</span>)</summary>
           <p class="hint">배민커넥트 화면의 금액과 바로 앞 이름표만 모아요. 배달완료 직후 화면과 수입 화면을 한 번씩 열어본 뒤, 이 목록을 캡처해서 Claude에게 보내주세요.</p>
@@ -528,7 +531,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           <button type="button" class="ghost" id="natScanClear">목록 지우기</button>
         </details>
         <details id="natLearn">
-          <summary>최근 배민 알림 기록 (자동 인식 확인용)</summary>
+          <summary>최근 배민·쿠팡 알림 기록 (자동 인식 확인용)</summary>
           <p class="hint">자동으로 안 세지거나 잘못 세지면, 이 목록을 캡처해서 Claude에게 보내주세요.</p>
           <ul id="natLearnList"></ul>
           <button type="button" class="ghost" id="natLearnClear">기록 지우기</button>
@@ -790,6 +793,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       splitDays: b ? splitDays() : [], splitPool: b ? splitPool() : 0, lastSplitAt: b ? lastSplitAt() : 0};
   }
   const SHOP = () => settings.shopName || "가게";
+  // 수입처: 배민(예전 기록은 src가 "baemin"), 쿠팡이츠(2026-10-11 시작), 부모님 가게
+  const srcName = s => s === "shop" ? SHOP() : s === "coupang" ? "쿠팡이츠" : "배민";
+  const srcOf = e => e.src === "shop" || e.src === "coupang" ? e.src : "baemin";
+  const SRC_CODE = {baemin: "b", coupang: "c", shop: "s"};
 
   // ---------- 백업 ----------
   function backupJSON(){ return JSON.stringify({app:"rider-ledger", version:1, savedAt:new Date().toISOString(), months, settings}, null, 1); }
@@ -852,7 +859,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
           const kind = x.ongoing ? "계속 떠 있는 알림" : "한 번 뜨는 알림";
           const res = x.counted ? " · <b class=\"c-in\">+1 셌음</b>" : x.matched ? " · 세는 문구 있음 · 중복이라 안 셈" : "";
           return `<li><small>${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())} · ${kind}${res}${x.pkg ? " · " + esc(x.pkg) : ""}</small>${esc(x.title)}${x.text ? " — " + esc(x.text) : ""}</li>`; }).join("")
-      : `<li class="empty">아직 받은 배민 알림이 없어요.</li>`;
+      : `<li class="empty">아직 받은 배민·쿠팡 알림이 없어요.</li>`;
   }
   if(NATIVE){
     $("natNotifBtn").onclick = () => NATIVE.openNotifSettings();
@@ -952,14 +959,17 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("sPer").textContent = cnt ? won(withCnt.reduce((a,e)=>a+e.amount,0)/cnt) : "-";
     $("sHr").textContent = hrs ? won(withHr.reduce((a,e)=>a+e.amount,0)/hrs) : "-";
     $("sDays").textContent = workDays+"일";
-    const tBm = ins.filter(e=>e.src!=="shop").reduce((a,e)=>a+e.amount,0), tShop = tIn - tBm;
+    const tBy = s => ins.filter(e => srcOf(e) === s).reduce((a,e)=>a+e.amount,0);
+    const tCp = tBy("coupang");
     $("srcSplit").innerHTML = tIn
-      ? `<span><i class="sw" style="background:var(--in)"></i>배민 <b>${won(tBm)}</b></span><span><i class="sw" style="background:var(--accent)"></i>${esc(SHOP())} <b>${won(tShop)}</b></span>`
+      ? `<span><i class="sw" style="background:var(--in)"></i>배민 <b>${won(tBy("baemin"))}</b></span>` +
+        (tCp ? `<span><i class="sw" style="background:var(--cp)"></i>쿠팡이츠 <b>${won(tCp)}</b></span>` : "") +
+        `<span><i class="sw" style="background:var(--accent)"></i>${esc(SHOP())} <b>${won(tBy("shop"))}</b></span>`
       : "";
     const pendG = ins.filter(e=>e.pending).reduce((a,e)=>a+e.amount,0);
     if(tIn) $("srcSplit").innerHTML += `<span>배달료 합계 <b>${won(tIn)}</b>${pendG ? ` (정산 대기 ${won(pendG)} 포함)` : ""}</span>`;
     $("taxNote").textContent = tIn
-      ? `번 돈은 세금·보험료를 뗀 실제로 받는(받을) 돈이에요. 배민은 지난 정산 기준 배달료의 ${(sr.avg*100).toFixed(1)}%가 들어와서, 정산 전인 날은 그 비율로 추정해요. 자전거 정비·장비·통신비 같은 지출 기록은 5월 종합소득세 신고 때 경비 자료가 돼요.`
+      ? `번 돈은 세금·보험료를 뗀 실제로 받는(받을) 돈이에요. 배민은 지난 정산 기준 배달료의 ${((sr.bySrc.baemin || sr.avg)*100).toFixed(1)}%가 들어와서, 정산 전인 날은 그 비율로 추정해요${tCp ? (sr.bySrc.coupang ? ` (쿠팡이츠는 ${(sr.bySrc.coupang*100).toFixed(1)}%)` : " (쿠팡이츠는 첫 정산 전이라 배민 비율로 추정)") : ""}. 자전거 정비·장비·통신비 같은 지출 기록은 5월 종합소득세 신고 때 경비 자료가 돼요.`
       : "배민 배달료는 사업소득이라 세금(3.3%)과 보험료를 떼고 들어와요. "+SHOP()+" 배달비는 떼지 않고 계산해요.";
 
     // goal
@@ -1074,11 +1084,15 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 
   // ---------- 받을 돈 (배민 정산 대기) ----------
   let settling = false, pendSkip = new Set(), amtTouched = false;
-  function pendingList(){
+  /** 정산 대기 중인 수입 (src를 주면 그 수입처만) */
+  function pendingList(src){
     const out = [];
-    Object.values(months).forEach(l => l.forEach(e => { if(e.type==="in" && e.pending) out.push(e); }));
+    Object.values(months).forEach(l => l.forEach(e => { if(e.type==="in" && e.pending && (!src || srcOf(e) === src)) out.push(e); }));
     return out.sort((a,b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   }
+  /** 정산 대기 기록들이 실제로 들어올 예상 금액 (수입처마다 지난 정산 비율로) */
+  const expectOf = list => { const sr = settleRatios(); return list.reduce((a,e) => a + netOf(e, sr).v, 0); };
+  const settleMemo = list => [...new Set(list.map(srcOf))].map(srcName).join("·") + ` 정산 ${list.length}건`;
   const md = s => Number(s.slice(5,7))+"/"+Number(s.slice(8));
   function renderPending(){
     const list = pendingList();
@@ -1086,20 +1100,23 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(!settling){
       const days = new Set(list.map(e=>e.date)).size;
       // 배민 정산 내역에서 읽은 확정 금액 (지급예정·정산예정)
-      const confirmed = payoutItems().filter(p => p.status !== "지급완료" && list.some(e => e.src !== "shop" && e.date >= p.from && e.date <= p.to));
+      const confirmed = payoutItems().filter(p => p.status !== "지급완료" && list.some(e => srcOf(e) === "baemin" && e.date >= p.from && e.date <= p.to));
       const confHtml = confirmed.length ? `<small>배민 확정: ${confirmed.map(p => `${md(p.from)}${p.to !== p.from ? "~" + md(p.to) : ""}분 <b class="num">${won(p.amount)}</b> ${esc(p.status)}`).join(" · ")}</small>` : "";
-      $("pend").innerHTML = `<div class="pend-h"><b>받을 돈 · 배민 정산 대기</b><span class="num">${list.length ? "약 "+won(gross*netRatio()) : "0원"}</span></div>` +
+      const bySrc = ["baemin","coupang"].map(s => ({s, l: list.filter(e => srcOf(e) === s)})).filter(x => x.l.length);
+      $("pend").innerHTML = `<div class="pend-h"><b>받을 돈 · 정산 대기</b><span class="num">${list.length ? "약 "+won(expectOf(list)) : "0원"}</span></div>` +
         (list.length
-          ? `<small>${md(list[0].date)}~${md(list[list.length-1].date)} · ${days}일치 배달료 ${won(gross)} × 지난 정산 비율 ${(netRatio()*100).toFixed(1)}%로 계산한 예상 금액이에요. 아직 "지금 내 돈"에는 들어가지 않았어요.</small>
+          ? `<small>${md(list[0].date)}~${md(list[list.length-1].date)} · ${days}일치 배달료 ${won(gross)}에 지난 정산 비율을 곱한 예상 금액이에요. 아직 "지금 내 돈"에는 들어가지 않았어요.</small>
+             ${bySrc.length > 1 ? `<small>${bySrc.map(x => `${srcName(x.s)} 약 <b class="num">${won(expectOf(x.l))}</b> (${(netRatio(x.s)*100).toFixed(1)}%)`).join(" · ")}</small>` : ""}
              ${confHtml}
              <div class="btns"><button type="button" class="ghost primary" id="settleOpen">정산 들어왔어요</button></div>`
-          : `<small>배민 수입을 적으면 여기에 쌓였다가, 정산이 들어오면 통장으로 옮겨져요.</small>`);
+          : `<small>배민·쿠팡이츠 수입을 적으면 여기에 쌓였다가, 정산이 들어오면 통장으로 옮겨져요.</small>`);
       return;
     }
     const sel = list.filter(e => !pendSkip.has(e.id));
-    const exp = Math.round(sel.reduce((a,e)=>a+e.amount,0)*netRatio());
+    const exp = Math.round(expectOf(sel));
+    const many = new Set(list.map(srcOf)).size > 1;
     $("pend").innerHTML = `<div class="pend-h"><b>이번에 정산된 배달</b><small>빠진 날은 체크를 풀어주세요</small></div>
-      <div class="pend-list">${list.map(e => `<label><input type="checkbox" class="p-chk" data-id="${e.id}" ${pendSkip.has(e.id)?"":"checked"}>${md(e.date)}${e.count?` · ${e.count}건`:""}<span class="num">${won(e.amount)}</span></label>`).join("")}</div>
+      <div class="pend-list">${list.map(e => `<label><input type="checkbox" class="p-chk" data-id="${e.id}" ${pendSkip.has(e.id)?"":"checked"}>${many ? srcName(srcOf(e)) + " " : ""}${md(e.date)}${e.count?` · ${e.count}건`:""}<span class="num">${won(e.amount)}</span></label>`).join("")}</div>
       <div class="row">
         <label>실제 입금된 금액<input type="text" inputmode="numeric" id="setAmt" class="money" value="${exp?exp.toLocaleString("ko-KR"):""}"></label>
         <label>들어온 통장<select id="setAcct"></select></label>
@@ -1117,14 +1134,15 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const id = e.target.dataset.id;
     e.target.checked ? pendSkip.delete(id) : pendSkip.add(id);
     const sel = pendingList().filter(x => !pendSkip.has(x.id));
-    if(!amtTouched){ const v = Math.round(sel.reduce((a,x)=>a+x.amount,0)*netRatio()); $("setAmt").value = v ? v.toLocaleString("ko-KR") : ""; }
+    if(!amtTouched){ const v = Math.round(expectOf(sel)); $("setAmt").value = v ? v.toLocaleString("ko-KR") : ""; }
   });
   $("pend").addEventListener("click", ev => {
     const t = ev.target;
     if(t.id==="settleOpen"){ settling = true; pendSkip = new Set(); renderPending(); }
     else if(t.id==="settleCancel"){ settling = false; renderPending(); }
     else if(t.id==="settleSave"){
-      const ids = new Set(pendingList().filter(e => !pendSkip.has(e.id)).map(e => e.id));
+      const picked = pendingList().filter(e => !pendSkip.has(e.id));
+      const ids = new Set(picked.map(e => e.id));
       const amount = parseMoney($("setAmt").value), acct = $("setAcct").value;
       if(!ids.size || !amount){ $("setAmt").focus(); return; }
       const sid = "s"+Date.now().toString(36);
@@ -1136,7 +1154,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         }
       }
       const sm = today.slice(0,7);
-      months[sm] = [...(months[sm]||[]), {id:sid, type:"settle", date:today, amount, acct, at:Date.now(), memo:`배민 정산 ${ids.size}건`}];
+      months[sm] = [...(months[sm]||[]), {id:sid, type:"settle", date:today, amount, acct, at:Date.now(), memo: settleMemo(picked)}];
       touched.add(sm);
       settling = false; pendSkip = new Set();
       if(BG()) splitMsg = splitNote(amount);
@@ -1230,6 +1248,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 
   // 배민 정산금은 "우아한청년들" 이름으로 들어와요 (2026-09-25 토스 내역에서 확인)
   const BAEMIN_PAYER = /우아한청년들|우아한형제들|배달의민족/;
+  // 쿠팡이츠 정산금 입금자명은 아직 확인 전이에요 (2026-10-11). 첫 입금 알림을 보고 맞춰요.
+  const COUPANG_PAYER = /쿠팡\s*이츠|CPEATS|씨피이츠/i;
   /** 잔액이 적힌 알림으로 통장 잔액을 맞추고, 배민 정산 입금이면 알아서 정산해요. 바뀐 게 있으면 true */
   function processBank(){
     const paid = processPayouts();
@@ -1243,7 +1263,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       if(!r.acct || it.t <= (settings.baseAt || 0)) return;
       const d = ymd(new Date(it.t)), m = d.slice(0,7);
       const txt = (it.title || "") + " " + (it.text || "");
-      if(it.kind === "in" && it.amount > 0 && BAEMIN_PAYER.test(txt)) autoSettle(it, r.acct);
+      if(it.kind === "in" && it.amount > 0 && BAEMIN_PAYER.test(txt)) autoSettle(it, r.acct, "baemin");
+      // 쿠팡이츠 정산금: 보낸 사람에 "쿠팡"이 들어가고, 정산 대기 중인 쿠팡이츠 배달과 금액이 맞으면 정산
+      // (쿠팡 쇼핑 환불도 "쿠팡"으로 들어와서, "쿠팡이츠"라고 확실히 적힌 게 아니면 금액이 맞을 때만)
+      else if(it.kind === "in" && it.amount > 0 && /쿠팡/.test(payerOf(txt) || txt) && !(settings.sugDone || []).includes(it.id) &&
+        autoSettle(it, r.acct, "coupang", COUPANG_PAYER.test(txt))) settings = {...settings, sugDone: [...(settings.sugDone || []), it.id].slice(-400)};
       // 한 번 "가게 배달비"로 정한 사람이 보낸 돈은 자동으로 가게 수입
       else if(it.kind === "in" && it.amount > 0 && (settings.shopPayers || []).includes(payerOf(txt)) && !(settings.sugDone || []).includes(it.id)) shopDeposit(it, r.acct);
       // 카드 승인·결제는 바로 지출로 (이체·출금은 내 통장끼리일 수 있어서 후보로 물어봐요)
@@ -1274,7 +1298,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       if(p.status !== "지급완료" || done.has(key)) return;
       done.add(key); changed = true;
       // 그 기간에 아직 정산 안 된 배민 수입만 (은행 알림으로 이미 정산했거나, 가계부 쓰기 전 기간이면 건너뛰어요)
-      const list = pendingList().filter(e => e.src !== "shop" && e.date >= p.from && e.date <= p.to);
+      const list = pendingList("baemin").filter(e => e.date >= p.from && e.date <= p.to);
       if(!list.length) return;
       settleEntries(list, p.amount, payoutId(), Date.now(), "p" + key.replace(/[^0-9]/g, ""),
         `배민 정산 ${md(p.from)}${p.to !== p.from ? "~" + md(p.to) : ""} (정산 내역 화면)`);
@@ -1294,18 +1318,22 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     demo = false;
   }
 
-  /** 우아한청년들 입금 → 정산 대기 중인 배민 수입 중 금액이 맞는 만큼 정산 처리 */
-  function autoSettle(it, acct){
-    const A = it.amount;
+  /**
+   * 정산금 입금 → 그 수입처의 정산 대기 기록 중 금액이 맞는 만큼 정산 처리.
+   * sure = 보낸 사람이 확실한지 (아니면 금액이 맞을 때만 정산하고 false를 돌려줘요)
+   */
+  function autoSettle(it, acct, src, sure = true){
+    const A = it.amount, who = src === "coupang" ? "쿠팡이츠" : "우아한청년들";
     // 이미 [정산 들어왔어요]로 같은 금액을 적어 뒀으면 건너뛰어요
     const dup = Object.values(months).some(l => l.some(e => e.type === "settle" && e.amount === A && Math.abs((e.at || 0) - it.t) < 3 * 86400000));
-    if(dup) return;
-    // 오래된 배달부터 더해 가며, 3.3% 뗀 합이 입금액과 가장 가까운 지점까지 묶어요
-    const list = pendingList();
+    if(dup) return true;
+    // 오래된 배달부터 더해 가며, 떼는 비율을 곱한 합이 입금액과 가장 가까운 지점까지 묶어요
+    const list = pendingList(src);
     let best = 0, bestDiff = Infinity, sum = 0;
-    const nr = netRatio();
+    const nr = netRatio(src);
     list.forEach((e, i) => { sum += e.amount; const diff = Math.abs(sum * nr - A); if(diff < bestDiff){ bestDiff = diff; best = i + 1; } });
     if(best && bestDiff > A * 0.2) best = 0; // 너무 안 맞으면 묶지 않고 돈만 기록
+    if(!best && !sure) return false;        // 쿠팡 쇼핑 환불일 수도 있어서 확인할 거래로 남겨요
     const ids = new Set(list.slice(0, best).map(e => e.id));
     const sid = "s" + it.id;
     for(const mm in months){
@@ -1313,8 +1341,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     }
     const d = ymd(new Date(it.t)), m = d.slice(0,7);
     months[m] = [...(months[m]||[]), {id: sid, type: "settle", date: d, amount: A, acct, at: it.t, auto: true,
-      memo: `배민 정산 (우아한청년들) ${ids.size}건`}];
-    if(BG()) splitMsg = `우아한청년들 입금으로 ${ids.size ? ids.size + "일치 배달을 정산 처리했어요" : "정산금을 기록했어요"}. ` + splitNote(A);
+      memo: `${srcName(src)} 정산 (${who}) ${ids.size}건`}];
+    if(BG()) splitMsg = `${who} 입금으로 ${ids.size ? ids.size + "일치 배달을 정산 처리했어요" : "정산금을 기록했어요"}. ` + splitNote(A);
+    return true;
   }
   // ---------- 가게 배달비 입금 (2026-10-04) ----------
   // 부모님 가게 배달비는 은행 이체로 들어와요: "MG새마을금고 [입금] 3,000원 9002-… 잔액 49,475원 10/04 19:14 <보낸 사람>"
@@ -1779,20 +1808,26 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // ---------- 실수령 비율 ----------
   // 배민은 3.3% 말고도 보험료 등을 떼고 줘요. 지난 정산에서 실제로 받은 비율을 써요 (9/23~9/27: 89,530 → 83,573).
   function settleRatios(){
-    const gross = {};
-    Object.values(months).forEach(l => l.forEach(e => { if(e.type === "in" && e.settleId) gross[e.settleId] = (gross[e.settleId] || 0) + e.amount; }));
-    const bySid = {}; let g = 0, a = 0;
+    const gross = {}, srcOfSid = {};
+    Object.values(months).forEach(l => l.forEach(e => { if(e.type === "in" && e.settleId){ gross[e.settleId] = (gross[e.settleId] || 0) + e.amount; srcOfSid[e.settleId] = srcOf(e); } }));
+    const bySid = {}, by = {}; let g = 0, a = 0;
     Object.values(months).forEach(l => l.forEach(e => {
-      if(e.type === "settle" && gross[e.id]){ bySid[e.id] = Math.min(1, e.amount / gross[e.id]); g += gross[e.id]; a += e.amount; }
+      if(e.type === "settle" && gross[e.id]){
+        bySid[e.id] = Math.min(1, e.amount / gross[e.id]); g += gross[e.id]; a += e.amount;
+        const s = by[srcOfSid[e.id]] || (by[srcOfSid[e.id]] = {g: 0, a: 0}); s.g += gross[e.id]; s.a += e.amount;
+      }
     }));
-    return {bySid, avg: g > 0 ? Math.min(1, a / g) : 0.967};
+    const avg = g > 0 ? Math.min(1, a / g) : 0.967;
+    // 수입처마다 떼는 비율이 달라요. 아직 정산을 한 번도 안 받은 수입처는 전체 평균으로 추정해요.
+    const bySrc = {}; for(const k in by) bySrc[k] = Math.min(1, by[k].a / by[k].g);
+    return {bySid, avg, bySrc};
   }
-  const netRatio = () => settleRatios().avg;
+  const netRatio = s => { const r = settleRatios(); return (s && r.bySrc[s]) || r.avg; };
   /** 수입 기록 한 건이 실제로 통장에 들어오는(올) 금액. est = 아직 정산 전이라 추정인지 */
   function netOf(e, sr){
     if(e.src === "shop") return {v: e.amount, est: false};
     if(e.settleId && sr.bySid[e.settleId]) return {v: e.amount * sr.bySid[e.settleId], est: false};
-    if(e.pending) return {v: e.amount * sr.avg, est: true};
+    if(e.pending) return {v: e.amount * (sr.bySrc[srcOf(e)] || sr.avg), est: true};
     return {v: e.amount, est: false}; // 처음부터 입금액으로 적은 기록
   }
 
@@ -1856,10 +1891,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         items.map(e => {
           const del = demo ? "<span></span>" : `<button class="del" data-id="${e.id}" aria-label="삭제">삭제</button>`;
           if(e.type==="xfer") return `<div class="ent"><span class="tag xfer">이체</span><span class="memo">${esc(acctName(e.from))} → ${esc(acctName(e.to))}${e.memo?`<small>${esc(e.memo)}</small>`:""}</span><span class="amt c-x">${won(e.amount)}</span>${del}</div>`;
-          if(e.type==="settle") return `<div class="ent"><span class="tag settle">정산</span><span class="memo">배민 정산 입금 → ${esc(acctName(e.acct))}${e.memo?`<small>${esc(e.memo)} · 수입 합계에는 안 들어가요</small>`:""}</span><span class="amt c-x">${won(e.amount)}</span>${del}</div>`;
+          if(e.type==="settle") return `<div class="ent"><span class="tag settle">정산</span><span class="memo">정산 입금 →${esc(acctName(e.acct))}${e.memo?`<small>${esc(e.memo)} · 수입 합계에는 안 들어가요</small>`:""}</span><span class="amt c-x">${won(e.amount)}</span>${del}</div>`;
           const where = e.acct && !demo ? acctName(e.acct) : "";
           const sub = [...(e.type==="in" ? [e.count?e.count+"건":"", e.hours?e.hours+"시간":""] : []), e.pending ? "정산 대기" : "", where].filter(Boolean).join(" · ");
-          const title = e.type==="in" ? (e.src==="shop"?SHOP():"배민") + (e.memo?" · "+e.memo:"") : (e.cat + (e.memo?" · "+e.memo:""));
+          const title = e.type==="in" ? srcName(srcOf(e)) + (e.memo?" · "+e.memo:"") : (e.cat + (e.memo?" · "+e.memo:""));
           const catFix = e.type === "out" && e.auto && !demo
             ? `<select class="cat-fix" data-id="${e.id}" aria-label="분류 바꾸기">${CATS.map(c => `<option${c === e.cat ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>` : "";
           return `<div class="ent"><span class="tag ${e.type}">${e.type==="in"?"수입":"지출"}</span><span class="memo">${catFix ? esc(e.memo || "") + catFix : esc(title)}${sub?`<small>${sub}${e.auto ? " · 은행 알림으로 자동 기록" : ""}</small>`:(e.auto ? "<small>은행 알림으로 자동 기록</small>" : "")}</span><span class="amt ${e.type==="in"?"c-in":"c-out"}">${e.type==="in"?"+":"−"}${won(e.amount)}</span>${del}</div>`;
@@ -1904,7 +1939,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("submitBtn").classList.toggle("out", m==="out");
     $("submitBtn").classList.toggle("x", m==="x");
     $("formHint").textContent = {
-      in: src==="shop" ? ""+SHOP()+"에서 받은 배달비를 적어요. 3.3%를 떼지 않고 그대로 잔액에 더해요." : "배민커넥트 앱에 찍힌 그날 배달료 합계(프로모션 포함)를 적어요. 정산될 때까지 ‘받을 돈’에 쌓여요.",
+      in: src==="shop" ? ""+SHOP()+"에서 받은 배달비를 적어요. 3.3%를 떼지 않고 그대로 잔액에 더해요."
+        : (src==="coupang" ? "쿠팡이츠 배달 파트너" : "배민커넥트") + " 앱에 찍힌 그날 배달료 합계(프로모션 포함)를 적어요. 정산될 때까지 ‘받을 돈’에 쌓여요.",
       out:"자전거 정비·장비·렌트처럼 일 때문에 쓴 돈도 꼭 적어두세요. 세금 신고 때 경비가 돼요.",
       x:"내 통장끼리 옮긴 돈이에요. 쓴 돈에 들어가지 않고, 통장 잔액만 바뀌어요."
     }[m];
@@ -1948,7 +1984,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   window.onNativeCounter = c => { if(c && Array.isArray(c.log)){ ctr = c; renderCtr(); } };
   const ctrCount = s => ctr.log.filter(x => x.s === s).length;
   // 배민 완료 화면에서 읽은 배달료 합계 (안드로이드 앱 v2.5 이상)
-  const ctrFee = () => ctr.log.filter(x => x.s === "b").reduce((a, x) => a + (Number(x.f) || 0), 0);
+  const ctrFee = (s = "b") => ctr.log.filter(x => x.s === s).reduce((a, x) => a + (Number(x.f) || 0), 0);
+  // 쿠팡이츠 금액: 완료 화면에서 읽은 배달료 합계 (앱 v2.14 이상, 쿠팡 화면 문구 확인 전에는 비어 있을 수 있어요)
+  function ctrCoupangAmount(){
+    const fee = ctrFee("c"), withFee = ctr.log.filter(x => x.s === "c" && x.f).length, all = ctrCount("c");
+    if(fee) return {amount: fee, src: withFee < all ? `쿠팡 완료 화면 ${withFee}건 · ${all - withFee}건은 금액 모름` : `쿠팡 완료 화면 ${withFee}건`};
+    return {amount: 0, src: ""};
+  }
   // 이번 근무의 배민 금액: 수입 화면에서 읽은 오늘 합계가 있으면 그게 가장 정확해요
   function ctrBaeminAmount(){
     const first = ctr.log.length ? ctr.log[0].t : 0;
@@ -1963,17 +2005,18 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const tday = ymd(new Date());
     const saved = (months[tday.slice(0,7)] || []).filter(e => e.type === "in" && e.src !== "shop" && e.date === tday);
     const savedAmt = saved.reduce((a,e) => a + e.amount, 0), savedCnt = saved.reduce((a,e) => a + (e.count || 0), 0);
-    const cur = ctrBaeminAmount();
+    const bm = ctrBaeminAmount(), cp = ctrCoupangAmount();
+    const cur = {amount: bm.amount + cp.amount, src: [bm.src, cp.src].filter(Boolean).join(" + ")};
     const total = savedAmt + cur.amount;
-    const cnt = savedCnt + ctrCount("b");
+    const cnt = savedCnt + ctrCount("b") + ctrCount("c");
     $("ctrFee").textContent = total ? won(total) : "-";
     $("ctrFeeSrc").textContent = total
       ? [savedAmt ? `저장한 ${won(savedAmt)}` : "", cur.src].filter(Boolean).join(" + ")
       : (NATIVE ? "배달 완료 화면이 뜨면 채워져요" : "퇴근 정리 때 금액을 적으면 보여요");
     // 수입 화면에서 읽은 금액이 틀렸으면 지울 수 있게
     const wrong = $("ctrTotalClear");
-    if(wrong) wrong.hidden = !(NATIVE && NATIVE.clearTotal && cur.src.includes("수입 화면"));
-    const withFee = cur.src.includes("수입 화면") ? ctrCount("b") : ctr.log.filter(x => x.s === "b" && x.f).length;
+    if(wrong) wrong.hidden = !(NATIVE && NATIVE.clearTotal && bm.src.includes("수입 화면"));
+    const withFee = (bm.src.includes("수입 화면") ? ctrCount("b") : ctr.log.filter(x => x.s === "b" && x.f).length) + ctr.log.filter(x => x.s === "c" && x.f).length;
     $("ctrPer").textContent = cur.amount && withFee ? won(cur.amount / withFee) : "-";
     const h = ctr.log.length ? (Date.now() - ctr.log[0].t) / 3600000 : 0;
     $("ctrHr").textContent = cur.amount && h >= 0.25 ? won(cur.amount / h) : "-";
@@ -1988,6 +2031,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("ctrBm").textContent = b;
     renderCtrStats();
     $("ctrShopN").textContent = s;
+    $("ctrCpN").textContent = ctrCount("c");
     $("ctrUndo").disabled = !has; $("ctrReset").disabled = !has; $("ctrDone").disabled = !has;
     if(has){
       const f = new Date(ctr.log[0].t), mins = Math.round((Date.now() - ctr.log[0].t) / 60000);
@@ -2004,7 +2048,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     el.hidden = false;
     if(!st.autoCount){ el.textContent = "배민 자동 카운트가 꺼져 있어요. ⚙ 메뉴에서 켤 수 있어요."; return; }
     if(st.countOn === "screen"){
-      el.textContent = st.a11y ? "배민커넥트 배달 완료 화면이 뜨면 자동으로 +1 하고 배달료도 더해요. 알림바에서도 +1을 누를 수 있어요."
+      el.textContent = st.a11y ? "배민커넥트 배달 완료 화면이 뜨면 자동으로 +1 하고 배달료도 더해요." +
+          (NATIVE.version && Number(NATIVE.version().split(".")[1]) >= 14 ? " 쿠팡이츠도 배달 완료 화면으로 세요(아직 문구를 맞추는 중이라 틀리면 ‘되돌리기’)." : " 쿠팡이츠는 아직 +1 쿠팡을 눌러주세요.") + " 알림바에서도 +1을 누를 수 있어요."
         : "⚙ 메뉴에서 ‘배민 화면 감지’를 켜면 배달완료를 누를 때 자동으로 세요.";
       return;
     }
@@ -2019,12 +2064,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       saveCtr(); renderCtr();
     }
     if(navigator.vibrate) try{ navigator.vibrate(15); }catch(e){}
-    const el = s === "b" ? $("ctrBm") : $("ctrShopN");
+    const el = s === "b" ? $("ctrBm") : s === "c" ? $("ctrCpN") : $("ctrShopN");
     el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
   }
   $("ctrPlus").onclick = () => tap("b");
   $("ctrTotalClear").onclick = () => { try{ NATIVE.clearTotal(); }catch(e){} nativeCtr(); renderCtr(); };
   $("ctrShop").onclick = () => tap("s");
+  $("ctrCp").onclick = () => tap("c");
   $("ctrUndo").onclick = () => { if(ctrOp("undo")) return; ctr.log.pop(); if(!ctr.log.length) ctr.date = ""; saveCtr(); renderCtr(); };
   $("ctrReset").onclick = () => {
     const b = $("ctrReset");
@@ -2035,7 +2081,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // 이 기록이 카운터에서 온 것이면, 저장 후 그 수입처 숫자를 0으로
   function ctrAfterSave(e){
     if(!fromCounter || e.type !== "in" || e.src !== fromCounter || e.date !== ctr.date) { fromCounter = ""; return ""; }
-    const code = fromCounter === "shop" ? "s" : "b";
+    const code = SRC_CODE[fromCounter];
     fromCounter = "";
     if(!ctrOp("clear", code)){
       ctr.log = ctr.log.filter(x => x.s !== code);
@@ -2055,28 +2101,35 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       const c = [...$("chips").children].find(x => x.textContent === "식비·카페"); if(c) c.click();
       $("fDate").value = today;
     } else {
-      const s = q === "shop" ? "shop" : "baemin", code = q === "shop" ? "s" : "b";
+      const s = q === "shop" ? "shop" : q === "cp" ? "coupang" : "baemin", code = SRC_CODE[s];
       pickSrc(s);           // 수입 탭으로 바꾸고 수입처 선택
       const n = ctrCount(code);
       $("fDate").value = n ? ctr.date : today;
       $("fAcct").value = payoutId();
       if(n){
         $("fCnt").value = n;
-        if(s === "baemin") $("fHrs").value = ctrHours();
+        const ride = s !== "shop";
+        if(ride) $("fHrs").value = ctrHours();
         fromCounter = s;
-        const cur = s === "baemin" ? ctrBaeminAmount() : {amount: 0, src: ""};
+        const cur = s === "baemin" ? ctrBaeminAmount() : s === "coupang" ? ctrCoupangAmount() : {amount: 0, src: ""};
         const fee = cur.amount;
         if(fee) $("fAmt").value = fee.toLocaleString("ko-KR");
-        $("toast").textContent = fee
-          ? `카운터에서 ${n}건, ${ctrHours()}시간, ${won(fee)}(${cur.src})을 가져왔어요. 다르면 고쳐서 저장하세요.`
-          : `카운터에서 ${n}건${s==="baemin" ? `, ${ctrHours()}시간` : ""}을 가져왔어요. 금액만 적어주세요.`;
+        // 배민·쿠팡을 같이 탔으면 운행 시간은 한쪽에만 적어야 시간당이 두 번 나뉘지 않아요
+        const both = ctrCount("b") && ctrCount("c");
+        const hrsSaved = (months[ctr.date.slice(0,7)] || []).some(e => e.type === "in" && srcOf(e) === "baemin" && e.date === ctr.date && e.hours);
+        if(s === "coupang" && (both || hrsSaved)) $("fHrs").value = "";
+        $("toast").textContent = (fee
+          ? `카운터에서 ${n}건${ride && $("fHrs").value ? `, ${ctrHours()}시간` : ""}, ${won(fee)}(${cur.src})을 가져왔어요. 다르면 고쳐서 저장하세요.`
+          : `카운터에서 ${n}건${ride && $("fHrs").value ? `, ${ctrHours()}시간` : ""}을 가져왔어요. ${srcName(s)} 앱에 찍힌 금액만 적어주세요.`) +
+          (both && s === "baemin" ? " 쿠팡이츠는 저장한 뒤 퇴근 정리를 한 번 더 누르면 돼요." : "");
       } else $("toast").textContent = "";
     }
     $("fAmt").focus();
     $("fAmt").scrollIntoView({block:"center", behavior:"smooth"});
   }
   document.querySelector(".quick").onclick = e => { const b = e.target.closest("button[data-q]"); if(b) quick(b.dataset.q); };
-  $("ctrDone").onclick = () => quick(ctrCount("b") ? "bm" : "shop");
+  // 퇴근 정리: 배민 → 쿠팡 → 가게 순서로 하나씩 (저장하면 그 숫자가 0이 되고 다음 것으로)
+  $("ctrDone").onclick = () => quick(ctrCount("b") ? "bm" : ctrCount("c") ? "cp" : "shop");
   renderCtr();
   // 앱을 다시 열면 경과 시간 갱신
   document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") renderCtr(); });
