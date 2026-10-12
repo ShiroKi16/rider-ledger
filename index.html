@@ -1532,6 +1532,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     if(/통신|휴대폰|핸드폰|폰/.test(name)) return "통신비";
     if(/보험|렌트|리스|할부/.test(name)) return "보험·렌트";
     if(/구독|넷플|유튜브|멤버십/.test(name)) return "구독";
+    if(/부모님|엄마|아빠|생활비/.test(name)) return "부모님께";
     return "";
   }
   const paidChecks = () => ((BG().paid || {})[curMonth()]) || [];
