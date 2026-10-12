@@ -1567,10 +1567,19 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // ---------- 나누는 날 (2026-10-04) ----------
   // 정산금이 들어올 때마다 나누지 않고, 매달 정한 날(기본 9일·19일)에 그동안 모인 정산금을 한 번에 나눠요.
   const splitDays = () => ((BG().splitDays || []).filter(d => d >= 1 && d <= 28).length ? BG().splitDays : [9, 19]).slice().sort((a,c) => a - c);
+  // 매주 나누기 (2026-10-12부터, 기본 월요일): budget.splitWeekday = 0(일)~6(토). 없으면 매달 splitDays.
+  const WEEKDAYS = ["일","월","화","수","목","금","토"];
+  const splitWeekday = () => { const w = BG().splitWeekday; return Number.isInteger(w) && w >= 0 && w <= 6 ? w : null; };
+  const splitLabel = () => splitWeekday() !== null ? `매주 ${WEEKDAYS[splitWeekday()]}요일` : `매달 ${splitDays().join("일·")}일`;
   /** 직전 나누는 날(오늘 포함)과 다음 나누는 날 */
   function splitSchedule(){
     const now = new Date(), t = ymd(now), ds = [];
-    for(let k = -1; k <= 2; k++) splitDays().forEach(d => ds.push(ymd(new Date(now.getFullYear(), now.getMonth() + k, d))));
+    const w = splitWeekday();
+    if(w !== null){
+      const back = (now.getDay() - w + 7) % 7;
+      for(let k = -1; k <= 2; k++) ds.push(ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - back + 7 * k)));
+    }
+    else for(let k = -1; k <= 2; k++) splitDays().forEach(d => ds.push(ymd(new Date(now.getFullYear(), now.getMonth() + k, d))));
     ds.sort();
     return {prev: ds.filter(d => d <= t).pop(), next: ds.find(d => d > t)};
   }
@@ -1677,8 +1686,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <label>청약에 매달 넣을 돈<input type="text" inputmode="numeric" class="num bg-money" id="bgHousing" value="${n(b.housingMonthly)}" placeholder="0"></label>
         <label>비상금 목표<input type="text" inputmode="numeric" class="num bg-money" id="bgGoal" value="${n(b.emergencyGoal || 1000000)}"></label>
       </div>
-      <div class="row">
-        <label>정산금 나누는 날 (매달)<input type="number" id="bgSd1" min="1" max="28" value="${(b.splitDays || [9,19])[0] || ""}"></label>
+      <label>정산금 나누는 날
+        <select id="bgSw">
+          <option value="">매달 정한 날짜에</option>
+          ${WEEKDAYS.map((d, i) => `<option value="${i}" ${b.splitWeekday === i ? "selected" : ""}>매주 ${d}요일</option>`).join("")}
+        </select>
+      </label>
+      <div class="row" id="bgSdRow" ${Number.isInteger(b.splitWeekday) ? "hidden" : ""}>
+        <label>매달 며칠에<input type="number" id="bgSd1" min="1" max="28" value="${(b.splitDays || [9,19])[0] || ""}"></label>
         <label>한 번 더 (비우면 한 달에 한 번)<input type="number" id="bgSd2" min="1" max="28" value="${(b.splitDays || [9,19])[1] || ""}"></label>
       </div>
       <label class="chk"><input type="checkbox" id="bgVia" ${(b.emViaSavings !== undefined ? b.emViaSavings : true) ? "checked" : ""}> 비상금은 저축 통장을 거쳐서만 채울 수 있어요 (토스 나눠모으기처럼)</label>
@@ -1731,8 +1746,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         <p class="hint">이미 빠져나간 건 체크만 해주세요 (잔액은 안 바뀌어요). 앞으로 통신비·보험·렌트·구독을 지출로 적으면 자동으로 체크돼요.</p>
       </div>
       <div class="bg-split">
-        <h3>정산금 나누기 <small>매달 ${splitDays().join("일·")}일</small></h3>
-        ${due ? `<p class="toast">오늘은 나누는 날이에요. 지난번에 나눈 뒤 모인 정산금 <b class="num">${won(pool)}</b>을 아래처럼 옮겨주세요.</p>`
+        <h3>정산금 나누기 <small>${splitLabel()}</small></h3>
+        ${due ? `<p class="toast">${sch.prev === ymd(new Date()) ? "오늘은 나누는 날이에요." : md(sch.prev) + "이 나누는 날이었어요."} 지난번에 나눈 뒤 모인 정산금 <b class="num">${won(pool)}</b>을 아래처럼 옮겨주세요.</p>`
           : `<p class="hint">다음 나누는 날 <b>${md(sch.next)}</b> · 지금까지 모인 정산금 <b class="num">${won(pool)}</b></p>`}
         ${splitMsg ? `<p class="toast">${esc(splitMsg)}</p>` : ""}
         <label>나눌 금액 ${due ? "(바꿔도 돼요)" : "(나누는 날 전에 미리 나누려면 적어주세요)"}<input type="text" inputmode="numeric" class="money" id="spAmt" value="${A ? A.toLocaleString("ko-KR") : ""}" placeholder="0"></label>
@@ -1757,6 +1772,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   });
   $("bgBody").addEventListener("change", e => {
     if(e.target.id === "spAmt"){ splitAmt = parseMoney(e.target.value); splitMsg = ""; renderBudget(); }
+    if(e.target.id === "bgSw") $("bgSdRow").hidden = e.target.value !== "";
     if(e.target.dataset && e.target.dataset.fx){
       const m = curMonth(), name = e.target.dataset.fx, b = BG();
       const cur = new Set(((b.paid || {})[m]) || []);
@@ -1808,6 +1824,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const now = new Date();
     settings = {...settings, accounts, baseAt: now.getTime(), baseDate: ymd(now),
       budget: {...(b || {}), roles, fixed, housingMonthly: num("bgHousing"), emergencyGoal: num("bgGoal"), allowanceWeekly: num("bgAlwWeek"),
+        splitWeekday: $("bgSw").value === "" ? null : Number($("bgSw").value),
         splitDays: [...new Set(["bgSd1","bgSd2"].map(id => Math.round(Number($(id).value) || 0)).filter(d => d >= 1 && d <= 28))].sort((a,c) => a - c), emViaSavings: $("bgVia").checked, ratiosBefore: rb, ratiosAfter: ra}};
     bgEditing = false;
     saveLocal(); render();
