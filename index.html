@@ -868,10 +868,10 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     $("natLocBtn").hidden = !!(st.locPerm && st.locBg);
     $("natRideHelp").hidden = false;
     $("natRideHelp").textContent = !rideOk ? "이 기능은 가계부 앱 v2.16 이상에서 돼요."
-      : !st.rideTrack ? "켜면 첫 배달을 셀 때 기록이 시작되고, 퇴근 정리로 카운터가 비면 멈춰요. 경로는 폰에만 저장되고, 클라우드에는 하루 거리(km)만 올라가요."
+      : !st.rideTrack ? "켜면 배민커넥트·쿠팡이츠에서 운행을 시작할 때 기록이 시작되고, 둘 다 운행을 끝내면 멈춰요(운행 알림을 못 읽으면 배달을 셀 때 켜지고 마지막 배달 30분 뒤에 멈춰요). 경로는 폰에만 저장되고, 클라우드에는 하루 거리(km)만 올라가요."
       : !st.locPerm ? "‘허용하러 가기’를 눌러 위치 권한을 허용해 주세요."
       : !st.locBg ? "앱을 닫아도 기록되게 ‘허용하러 가기’ → 권한 → 위치 → ‘항상 허용’을 골라주세요."
-      : st.rideOn ? "지금 경로를 기록하고 있어요." : "다음 근무(첫 배달)부터 기록해요.";
+      : st.rideOn ? "지금 경로를 기록하고 있어요." : "배민·쿠팡에서 운행을 시작하면 기록해요.";
     $("natAlert").disabled = !st.autoCount;
     $("natCountOn").value = st.countOn || "assign";
     $("natScan").checked = !!st.scanMode;
