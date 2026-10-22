@@ -1369,7 +1369,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   const COUPANG_PAYER = /쿠팡\s*이츠|CPEATS|씨피이츠/i;
   /** 잔액이 적힌 알림으로 통장 잔액을 맞추고, 배민 정산 입금이면 알아서 정산해요. 바뀐 게 있으면 true */
   function processBank(){
-    const paid = processPayouts();
+    const deduped = dedupeSettles();
+    if(deduped) saveLocal();
+    const paid = processPayouts() || deduped;
     const items = bankItems(); if(!items.length) return paid;
     const done = new Set(settings.bankDone || []);
     let changed = false;
@@ -1426,12 +1428,38 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       // 그 기간에 아직 정산 안 된 배민 수입만 (은행 알림으로 이미 정산했거나, 가계부 쓰기 전 기간이면 건너뛰어요)
       const list = pendingList("baemin").filter(e => e.date >= p.from && e.date <= p.to);
       if(!list.length) return;
+      // 은행 알림(우아한청년들 입금)으로 같은 금액이 이미 들어와 있으면, 새로 적지 말고 그 입금에 배달만 연결해요
+      // (10/20 4,667원이 은행 알림 + 정산 내역 화면으로 두 번 적힌 적이 있어요)
+      const twin = orphanSettle(p.amount);
+      if(twin){
+        const ids = new Set(list.map(e => e.id));
+        for(const mm in months) if(months[mm].some(e => ids.has(e.id))) months[mm] = months[mm].map(e => ids.has(e.id) ? {...e, pending: false, settleId: twin.id} : e);
+        return;
+      }
       settleEntries(list, p.amount, payoutId(), Date.now(), "p" + key.replace(/[^0-9]/g, ""),
         `배민 정산 ${md(p.from)}${p.to !== p.from ? "~" + md(p.to) : ""} (정산 내역 화면)`);
       if(BG()) splitMsg = `배민 ${md(p.from)}${p.to !== p.from ? "~" + md(p.to) : ""}분 ` + splitNote(p.amount);
     });
     if(changed){ settings = {...settings, payoutDone: [...done].slice(-200)}; saveLocal(); }
     return changed;
+  }
+  /** 최근 5일 안에 같은 금액으로 들어왔는데 연결된 배달이 없는 정산 기록 */
+  function orphanSettle(amount){
+    const linked = new Set(); Object.values(months).forEach(l => l.forEach(e => { if(e.settleId) linked.add(e.settleId); }));
+    for(const l of Object.values(months)) for(const e of l)
+      if(e.type === "settle" && e.amount === amount && !linked.has(e.id) && Date.now() - (e.at || 0) < 5 * 86400000) return e;
+    return null;
+  }
+  /** 같은 금액 정산이 하루 안에 두 번 적혔고 하나는 연결된 배달이 없으면, 빈 쪽을 지워요 (예전 중복 정리) */
+  function dedupeSettles(){
+    const linked = new Set(); Object.values(months).forEach(l => l.forEach(e => { if(e.settleId) linked.add(e.settleId); }));
+    const settles = Object.values(months).flat().filter(e => e.type === "settle");
+    const drop = new Set();
+    settles.forEach(a => { if(linked.has(a.id) || drop.has(a.id)) return;
+      if(settles.some(b => b !== a && !drop.has(b.id) && b.amount === a.amount && Math.abs((b.at || 0) - (a.at || 0)) < 86400000 && linked.has(b.id))) drop.add(a.id); });
+    if(!drop.size) return false;
+    for(const mm in months) months[mm] = months[mm].filter(e => !drop.has(e.id));
+    return true;
   }
   /** 정산 대기 기록들을 정산 처리하고, 받은 금액을 통장에 더하는 정산 기록을 남겨요 */
   function settleEntries(list, amount, acct, at, sid, memo){
