@@ -715,6 +715,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   /** 다른 기기에서 온 변경을 이 기기에 저장하고 화면에 반영 (다시 올리지는 않아요) */
   function applyRemote(){
     fixRoles();
+    // 다른 기기에서 받은 기록에 예전 중복 정산이 남아 있으면 정리하고 다시 올려요
+    if(typeof dedupeSettles === "function" && dedupeSettles()) setTimeout(() => cloudPush(), 0);
     try{ localStorage.setItem(KEY, JSON.stringify({months, settings})); }catch(e){}
     syncNative();
     demo = !hasData();
