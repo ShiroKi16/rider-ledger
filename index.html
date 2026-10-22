@@ -1125,6 +1125,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // 기준 잔액(직접 맞춘 금액) + 그 이후 기록된 수입(3.3% 뗀 금액) − 지출
   let editing = false;
   function afterBase(e){
+    // 잔액을 맞춘 날보다 앞 날짜의 기록은, 나중에 적었더라도 이미 그 잔액에 들어가 있어요
+    // (10/22에 잔액을 맞춘 뒤 10/20 저녁값을 적었더니 한 번 더 빠진 적이 있어요)
+    if(settings.baseDate && e.date && e.date < settings.baseDate) return false;
     if(e.at && settings.baseAt) return e.at > settings.baseAt;
     return settings.baseDate ? e.date > settings.baseDate : true;
   }
