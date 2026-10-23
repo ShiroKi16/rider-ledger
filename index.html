@@ -557,7 +557,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 </dialog>
 <script>
 (() => {
-  const CATS = ["식비·카페","교통","자전거 정비","보험·렌트","장비","통신비","구독","부모님께","쇼핑·여가","게임","기타"];
+  const CATS = ["식비·카페","교통","병원·약","자전거 정비","보험·렌트","장비","통신비","구독","부모님께","쇼핑·여가","게임","기타"];
   const $ = id => document.getElementById(id);
   // 안드로이드 앱(v2 이상) 안에서 열리면 앱 기능에 연결돼요. 브라우저에서는 null.
   const NATIVE = window.RiderNative || null;
@@ -696,8 +696,12 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
         const r = d.data().entries || [], s = JSON.stringify(r);
         if(s === JSON.stringify(months[d.id] || [])){ cloud.sent.months[d.id] = s; return; }
         if(d.data().by === cloud.dev) return; // 내가 올린 게 되돌아온 것
-        if(r.length) months[d.id] = r; else delete months[d.id];
+        // 아직 못 올린 내 변경이 있으면 덮어쓰지 말고 합쳐요 (합친 건 다음 올리기에서 올라가요)
+        const mine = months[d.id] || [], base = cloud.sent.months[d.id];
+        const next = base !== undefined && J(mine) !== base ? mergeEntries(JSON.parse(base), mine, r) : r;
+        if(next.length) months[d.id] = next; else delete months[d.id];
         cloud.sent.months[d.id] = s; changed = true;
+        if(J(next) !== s) setTimeout(() => cloudPush(), 0);
       });
       cloud.last = Date.now();
       if(changed) applyRemote(); else renderCloud();
@@ -707,8 +711,11 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       const v = d.data(); if(v.by === cloud.dev) return;
       const s = JSON.stringify(v.data || {});
       if(s === JSON.stringify(settings)) return;
-      settings = {...settings, ...(v.data || {})}; cloud.sent.settings = JSON.stringify(settings);
+      const dirty = cloud.sent.settings && J(settings) !== cloud.sent.settings;
+      const next = dirty ? mergeSettings(JSON.parse(cloud.sent.settings), settings, v.data || {}) : {...settings, ...(v.data || {})};
+      settings = next; cloud.sent.settings = s;
       applyRemote();
+      if(J(next) !== s) setTimeout(() => cloudPush(), 0);
     }));
   }
 
@@ -724,29 +731,76 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     renderCloud();
   }
 
-  /** 바뀐 달·설정만 올려요 */
+  // ---------- 3자 병합 (2026-10-23) ----------
+  // 폰 앱이 잠들어 있다 깨면, 다른 기기에서 바뀐 걸 받기 전에 옛 설정·기록을 통째로 올려서 덮어쓴 적이 있어요.
+  // 그래서 올리기 직전에 클라우드 것을 다시 읽고, 마지막으로 맞춰 본 것(base)과 비교해 "내가 바꾼 부분"만 얹어요.
+  const J = v => JSON.stringify(v);
+  /** 기록 목록: id 기준. 내가 더한 건 더하고, 내가 지운 건 지우고, 내가 고친 건 내 것, 나머지는 클라우드 것 */
+  function mergeEntries(base, local, remote){
+    const B = new Map(base.map(e => [e.id, J(e)])), L = new Map(local.map(e => [e.id, e]));
+    const out = [];
+    remote.forEach(r => {
+      const l = L.get(r.id);
+      if(!l){ if(B.has(r.id)) return; out.push(r); return; }           // 내가 지운 것 / 남이 더한 것
+      out.push(B.get(r.id) !== undefined && J(l) !== B.get(r.id) ? l : r); // 내가 고쳤으면 내 것
+    });
+    const R = new Set(remote.map(e => e.id));
+    local.forEach(l => { if(!R.has(l.id) && !B.has(l.id)) out.push(l); }); // 내가 새로 더한 것
+    return out;
+  }
+  /** 설정: 키마다 (budget은 그 안의 키마다) 내가 바꾼 것만 내 값, 나머지는 클라우드 값 */
+  function mergeSettings(base, local, remote){
+    const pick = (b, l, r) => {
+      const out = {...r};
+      new Set([...Object.keys(l), ...Object.keys(b)]).forEach(k => {
+        if(J(l[k]) === J(b[k])) return;                // 내가 안 바꾼 키
+        if(l[k] === undefined) delete out[k]; else out[k] = l[k];
+      });
+      return out;
+    };
+    const out = pick(base, local, remote);
+    if(local.budget && remote.budget && base.budget && J(local.budget) !== J(base.budget)) out.budget = pick(base.budget, local.budget, remote.budget);
+    return out;
+  }
+
+  /** 바뀐 달·설정만 올려요 (클라우드가 그사이 바뀌었으면 합쳐서) */
   function cloudPush(now){
     if(!cloud.uid || !cloud.merged) return;
     clearTimeout(cloud.t);
-    cloud.t = setTimeout(() => {
-      const ref = userRef(), batch = cloud.db.batch(), at = Date.now();
-      let n = 0;
-      const keys = new Set([...Object.keys(months), ...Object.keys(cloud.sent.months)]);
-      keys.forEach(m => {
-        const s = JSON.stringify(months[m] || []);
-        if(cloud.sent.months[m] === s) return;
-        if(cloud.sent.months[m] === undefined && s === "[]") return;
-        batch.set(ref.collection("months").doc(m), {entries: JSON.parse(s), updatedAt: at, by: cloud.dev});
-        cloud.sent.months[m] = s; n++;
+    cloud.t = setTimeout(async () => {
+      const ref = userRef(), at = Date.now();
+      const todo = [...new Set([...Object.keys(months), ...Object.keys(cloud.sent.months)])].filter(m => {
+        const s = J(months[m] || []);
+        return cloud.sent.months[m] !== s && !(cloud.sent.months[m] === undefined && s === "[]");
       });
-      const ss = JSON.stringify(settings);
-      if(ss !== cloud.sent.settings && hasSettingsData(settings)){
-        batch.set(ref.collection("meta").doc("settings"), {data: JSON.parse(ss), updatedAt: at, by: cloud.dev});
-        cloud.sent.settings = ss; n++;
-      }
-      if(!n) return;
-      batch.commit().then(() => { cloud.last = Date.now(); cloud.err = ""; renderCloud(); })
-        .catch(e => { cloud.err = "올리지 못했어요: " + (e.code || e.message); cloud.sent = {months: {}, settings: ""}; renderCloud(); });
+      const setChanged = J(settings) !== cloud.sent.settings && hasSettingsData(settings);
+      if(!todo.length && !setChanged) return;
+      try{
+        let pulled = false;
+        await cloud.db.runTransaction(async tx => {
+          const docs = await Promise.all(todo.map(m => tx.get(ref.collection("months").doc(m))));
+          const sdoc = setChanged ? await tx.get(ref.collection("meta").doc("settings")) : null;
+          todo.forEach((m, i) => {
+            const base = cloud.sent.months[m] ? JSON.parse(cloud.sent.months[m]) : [];
+            const remote = docs[i].exists ? (docs[i].data().entries || []) : [];
+            const local = months[m] || [];
+            const merged = J(remote) === J(base) ? local : mergeEntries(base, local, remote);
+            if(J(merged) !== J(local)){ pulled = true; if(merged.length) months[m] = merged; else delete months[m]; }
+            tx.set(ref.collection("months").doc(m), {entries: merged, updatedAt: at, by: cloud.dev});
+          });
+          if(setChanged){
+            const base = cloud.sent.settings ? JSON.parse(cloud.sent.settings) : {};
+            const remote = sdoc && sdoc.exists ? (sdoc.data().data || {}) : {};
+            const merged = (!sdoc || !sdoc.exists || J(remote) === J(base)) ? settings : mergeSettings(base, settings, remote);
+            if(J(merged) !== J(settings)){ pulled = true; settings = merged; }
+            tx.set(ref.collection("meta").doc("settings"), {data: JSON.parse(J(settings)), updatedAt: at, by: cloud.dev});
+          }
+        });
+        todo.forEach(m => { cloud.sent.months[m] = J(months[m] || []); });
+        if(setChanged) cloud.sent.settings = J(settings);
+        cloud.last = Date.now(); cloud.err = "";
+        if(pulled) applyRemote(); else renderCloud();
+      }catch(e){ cloud.err = "올리지 못했어요: " + (e.code || e.message); renderCloud(); }
     }, now ? 0 : 800);
   }
 
@@ -1357,6 +1411,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const rules = [
       [/마트|식자재|편의점|GS25|지에스25|CU|씨유|세븐일레븐|이마트24|아이스크림|디저트|과자|제과|떡|도넛|와플|이마트|홈플러스|롯데마트|카페|커피|스타벅스|메가|컴포즈|이디야|빽다방|식당|김밥|분식|치킨|피자|버거|맥도날드|롯데리아|베이커리|빵|국밥|배달의민족|쿠팡이츠|요기요/, "식비·카페"],
       [/교통|버스|지하철|택시|티머니|캐시비|코레일|SRT|고속|시외/, "교통"],
+      [/의원|병원|약국|치과|한의원|의료|클리닉|안과|피부과/, "병원·약"],
+      [/닭강정|강정|떡볶이|순대|족발|보쌈|중국집|반점|돈까스|냉면|국수|분식|도시락|샌드위치|호프/, "식비·카페"],
+      [/볼링|볼러|노래|코인노래|PC방|피씨방|당구|오락|영화|CGV|메가박스|롯데시네마|방탈출/, "쇼핑·여가"],
       [/자전거|바이크|사이클|정비/, "자전거 정비"],
       [/보험|렌트|리스|생명|화재|손해|라이프/, "보험·렌트"],
       [/SKT|KT|LG\s*U|통신|알뜰폰/, "통신비"],
