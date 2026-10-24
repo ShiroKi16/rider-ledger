@@ -1347,7 +1347,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   });
 
   // ---------- 은행 알림 (안드로이드 앱 v2.9 이상) ----------
-  // settings.bankMap = [{pkg, kw, acct}]: 이 앱의 알림(+구분 단어)은 이 통장. acct가 ""이면 무시.
+  // settings.bankMap = [{pkg, kw, acct}]: 이 앱의 알림(+구분 단어)은 이 통장. acct가 ""이면 무시. pkg 없이 app(앱 이름)만 있어도 돼요.
   // settings.bankDone = 잔액 처리 끝난 알림 id, settings.sugDone = 지출 후보 처리 끝난 알림 id
   // 거래 단어가 없는 알림(토스 주식 뉴스·광고 "삼성전자 ○○원" 등)은 은행 알림으로 보지 않아요 (2026-09-30)
   const TX_WORD = /입금|출금|승인|결제|이체|잔액|출금가능액|환불|송금|받았|보냈/;
@@ -1386,7 +1386,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   const bankMap = () => settings.bankMap || [];
   function ruleFor(it){
     const txt = (it.title || "") + " " + (it.text || "");
-    const rs = bankMap().filter(r => r.pkg === it.pkg && (!r.kw || txt.includes(r.kw)));
+    // 패키지 이름을 모를 때(PC에서 미리 연결)는 앱 이름으로도 맞춰요
+    const rs = bankMap().filter(r => (r.pkg ? r.pkg === it.pkg : !!r.app && r.app === it.app) && (!r.kw || txt.includes(r.kw)));
     return rs.sort((a,b) => (b.kw ? 1 : 0) - (a.kw ? 1 : 0))[0];
   }
   // 실제 케이뱅크 알림 (2026-09-26): "승인 3,500원 코아 식자재마트 카드(5222) | 09/26 15:52 출금가능액 79,166원"
