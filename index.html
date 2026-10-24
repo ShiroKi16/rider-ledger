@@ -1905,9 +1905,13 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     const fixed = fixedNeed(), incBal = bals[r.income]||0;
     const emBal = bals[r.emergency]||0, goal = b.emergencyGoal||0, pct = goal ? Math.min(100, emBal / goal * 100) : 0;
     // 저축 통장을 거쳐 비상금으로 넘어간 돈은 저축이 아니라 비상금이에요
-    const toEm = monthList().filter(e => e.type === "xfer" && e.from === r.savings && e.to === r.emergency).reduce((a,e) => a + e.amount, 0);
-    const emM = xferTo(r.emergency);
-    const svM = xferTo(r.savings) - toEm, hsM = housingIn(), alw = bals[r.allowance]||0;
+    // 단, 이번 달 저축에 들어온 돈보다 큰 이동은 원래 있던 목돈을 옮긴 거라 '모은 돈'에서 빼요
+    const svIn = xferTo(r.savings);
+    const moves = monthList().filter(e => e.type === "xfer" && e.from === r.savings && e.to === r.emergency);
+    const toEm = moves.filter(e => e.amount <= svIn).reduce((a,e) => a + e.amount, 0);
+    const lump = moves.filter(e => e.amount > svIn).reduce((a,e) => a + e.amount, 0);
+    const emM = xferTo(r.emergency) - lump;
+    const svM = svIn - toEm, hsM = housingIn(), alw = bals[r.allowance]||0;
     const sch = splitSchedule(), due = splitDue(), pool = splitPool();
     const A = splitAmt || (due ? pool : 0);
     const sp = A ? computeSplit(A, bals) : null;
