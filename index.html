@@ -777,6 +777,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
       if(!todo.length && !setChanged) return;
       try{
         let pulled = false;
+        // 실제로 올린 내용. 올리는 사이에 새로 적은 기록은 아직 안 올라갔으니 '올린 것'으로 치면 안 돼요
+        // (그렇게 치면 다음 병합에서 "다른 기기가 지운 것"으로 보고 사라져요, 2026-10-27)
+        const pushed = {}; let pushedSet = null;
         await cloud.db.runTransaction(async tx => {
           const docs = await Promise.all(todo.map(m => tx.get(ref.collection("months").doc(m))));
           const sdoc = setChanged ? await tx.get(ref.collection("meta").doc("settings")) : null;
@@ -786,6 +789,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
             const local = months[m] || [];
             const merged = J(remote) === J(base) ? local : mergeEntries(base, local, remote);
             if(J(merged) !== J(local)){ pulled = true; if(merged.length) months[m] = merged; else delete months[m]; }
+            pushed[m] = J(merged);
             tx.set(ref.collection("months").doc(m), {entries: merged, updatedAt: at, by: cloud.dev});
           });
           if(setChanged){
@@ -793,11 +797,14 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
             const remote = sdoc && sdoc.exists ? (sdoc.data().data || {}) : {};
             const merged = (!sdoc || !sdoc.exists || J(remote) === J(base)) ? settings : mergeSettings(base, settings, remote);
             if(J(merged) !== J(settings)){ pulled = true; settings = merged; }
-            tx.set(ref.collection("meta").doc("settings"), {data: JSON.parse(J(settings)), updatedAt: at, by: cloud.dev});
+            pushedSet = J(settings);
+            tx.set(ref.collection("meta").doc("settings"), {data: JSON.parse(pushedSet), updatedAt: at, by: cloud.dev});
           }
         });
-        todo.forEach(m => { cloud.sent.months[m] = J(months[m] || []); });
-        if(setChanged) cloud.sent.settings = J(settings);
+        todo.forEach(m => { cloud.sent.months[m] = pushed[m]; });
+        if(setChanged) cloud.sent.settings = pushedSet;
+        // 올리는 동안 또 바뀐 게 있으면 한 번 더 올려요
+        if(todo.some(m => J(months[m] || []) !== pushed[m]) || (setChanged && J(settings) !== pushedSet)) setTimeout(() => cloudPush(), 0);
         cloud.last = Date.now(); cloud.err = "";
         if(pulled) applyRemote(); else renderCloud();
       }catch(e){ cloud.err = "올리지 못했어요: " + (e.code || e.message); renderCloud(); }
