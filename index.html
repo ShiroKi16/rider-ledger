@@ -724,6 +724,9 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     fixRoles();
     // 다른 기기에서 받은 기록에 예전 중복 정산이 남아 있으면 정리하고 다시 올려요
     if(typeof dedupeSettles === "function" && dedupeSettles()) setTimeout(() => cloudPush(), 0);
+    let dupFixed = false;
+    for(const m in months){ const u = uniqById(months[m]); if(u.length !== months[m].length){ months[m] = u; dupFixed = true; } }
+    if(dupFixed) setTimeout(() => cloudPush(), 0);
     try{ localStorage.setItem(KEY, JSON.stringify({months, settings})); }catch(e){}
     syncNative();
     demo = !hasData();
@@ -735,6 +738,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   // 폰 앱이 잠들어 있다 깨면, 다른 기기에서 바뀐 걸 받기 전에 옛 설정·기록을 통째로 올려서 덮어쓴 적이 있어요.
   // 그래서 올리기 직전에 클라우드 것을 다시 읽고, 마지막으로 맞춰 본 것(base)과 비교해 "내가 바꾼 부분"만 얹어요.
   const J = v => JSON.stringify(v);
+  /** 같은 id가 두 번 들어간 기록은 하나만 (폰 두 대가 같은 알림을 처리해서 생긴 적이 있어요, 2026-11-02) */
+  const uniqById = list => { const seen = new Set(); return list.filter(e => !e.id || (seen.has(e.id) ? false : (seen.add(e.id), true))); };
   /** 기록 목록: id 기준. 내가 더한 건 더하고, 내가 지운 건 지우고, 내가 고친 건 내 것, 나머지는 클라우드 것 */
   function mergeEntries(base, local, remote){
     const B = new Map(base.map(e => [e.id, J(e)])), L = new Map(local.map(e => [e.id, e]));
@@ -746,7 +751,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
     });
     const R = new Set(remote.map(e => e.id));
     local.forEach(l => { if(!R.has(l.id) && !B.has(l.id)) out.push(l); }); // 내가 새로 더한 것
-    return out;
+    return uniqById(out);
   }
   /** 설정: 키마다 (budget은 그 안의 키마다) 내가 바꾼 것만 내 값, 나머지는 클라우드 값 */
   function mergeSettings(base, local, remote){
