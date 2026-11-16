@@ -2463,7 +2463,8 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   });
   $("list").addEventListener("click", ev => {
     const b = ev.target.closest(".del"); if(!b) return;
-    if(!b.classList.contains("arm")){ b.classList.add("arm"); b.textContent = "정말 삭제"; setTimeout(()=>{ b.classList.remove("arm"); b.textContent="삭제"; }, 3000); return; }
+    // aria-label도 같이 바꿔야 화면 읽기 프로그램·자동화 도구가 '정말 삭제' 상태를 알아요
+    if(!b.classList.contains("arm")){ b.classList.add("arm"); b.textContent = "정말 삭제"; b.setAttribute("aria-label", "정말 삭제 (한 번 더 누르면 지워져요)"); setTimeout(()=>{ b.classList.remove("arm"); b.textContent="삭제"; b.setAttribute("aria-label", "삭제"); }, 3000); return; }
     const id = b.dataset.id;
     const touched = new Set();
     for(const m in months){
