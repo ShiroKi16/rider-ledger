@@ -17,8 +17,9 @@
 <style>
 :root{
   --bg:#F1F2EE; --surface:#FFFFFF; --sunk:#E6E8E3; --line:#D5D9D3;
-  --ink:#1C2326; --muted:#687276; --accent:#E3A000; --accent-ink:#8A6100; --accent-soft:#FBEFCB;
-  --in:#1F8A5B; --in-soft:#DDF0E6; --out:#C4463A; --out-soft:#F7E0DC; --cp:#2B6FD0;
+  --ink:#1C2326; --muted:#5A6468; --accent:#E3A000; --accent-ink:#8A6100; --accent-soft:#FBEFCB;
+  --in:#17714A; --in-soft:#DDF0E6; --out:#A8382D; --out-soft:#F7E0DC; --cp:#2B6FD0; /* 글자색은 모든 배경에서 4.5:1 이상 */
+  --in-fill:#1A7A50; --out-fill:#C4463A; --on-fill:#FFFFFF; /* 채운 버튼: 글자 대비 4.5:1 이상 */
   --display:"Black Han Sans","IBM Plex Sans KR",sans-serif;
   --body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
@@ -29,6 +30,7 @@
     --bg:#131819; --surface:#1C2225; --sunk:#252D30; --line:#323B3F;
     --ink:#E7EBE9; --muted:#96A0A4; --accent:#F2B82E; --accent-ink:#F2B82E; --accent-soft:#3A3117;
     --in:#4CC08A; --in-soft:#18362A; --out:#EE7B6E; --out-soft:#3F2320; --cp:#6EA6F2;
+    --in-fill:#4CC08A; --out-fill:#EE7B6E; --on-fill:#131819;
   }
 }
 :root[data-theme="dark"]{
@@ -36,6 +38,7 @@
   --bg:#131819; --surface:#1C2225; --sunk:#252D30; --line:#323B3F;
   --ink:#E7EBE9; --muted:#96A0A4; --accent:#F2B82E; --accent-ink:#F2B82E; --accent-soft:#3A3117;
   --in:#4CC08A; --in-soft:#18362A; --out:#EE7B6E; --out-soft:#3F2320; --cp:#6EA6F2;
+  --in-fill:#4CC08A; --out-fill:#EE7B6E; --on-fill:#131819;
 }
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;padding-inline:16px;padding-block:20px 48px}
@@ -43,6 +46,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15p
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+::placeholder{color:var(--muted);opacity:1}
 
 header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
 .brand h1{font-family:var(--display);font-weight:400;font-size:30px;line-height:1.1;margin:0;letter-spacing:.5px}
@@ -109,8 +113,8 @@ input.money{font-family:var(--mono);font-size:18px;font-weight:600}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chips button{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:6px 11px;font-size:13px}
 .chips button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.submit{border:0;border-radius:10px;padding:13px;font-weight:700;font-size:16px;background:var(--in);color:#fff}
-.submit.out{background:var(--out)}
+.submit{border:0;border-radius:10px;padding:13px;font-weight:700;font-size:16px;background:var(--in-fill);color:var(--on-fill)}
+.submit.out{background:var(--out-fill)}
 .hint{font-size:12.5px;color:var(--muted);margin:0}
 .toast{font-size:13px;color:var(--in);min-height:18px;margin:0}
 
@@ -141,13 +145,14 @@ input.money{font-family:var(--mono);font-size:18px;font-weight:600}
 .ent .memo{font-size:14px;min-width:0;overflow-wrap:anywhere}
 .ent .memo small{color:var(--muted);display:block;font-size:12px}
 .ent .amt{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums}
-.del{border:0;background:transparent;color:var(--muted);border-radius:6px;padding:4px 8px;font-size:13px}
+.del{border:0;background:transparent;color:var(--muted);border-radius:6px;padding:4px 10px;font-size:13px;min-height:44px;min-width:44px} /* 장갑 낀 손가락 기준 터치 영역 */
 .del:hover{background:var(--sunk)}
-.del.arm{background:var(--out);color:#fff}
+.del.arm{background:var(--out-fill);color:var(--on-fill)}
 .split{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;font-size:13px;color:var(--muted)}
 .split b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}
 .split .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
-.pend{border:1px dashed var(--accent);background:var(--accent-soft);border-radius:10px;padding:12px;margin-bottom:10px;display:grid;gap:8px}
+.pend{border-top:1px dashed var(--accent);padding:12px 0 2px;margin-bottom:10px;display:grid;gap:8px} /* 카드 안 카드 대신 점선 구분선 */
+.pend-h b{color:var(--accent-ink)}
 .pend-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
 .pend-h b{font-size:14px}
 .pend-h .num{font-weight:600;font-size:17px}
@@ -202,7 +207,7 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .bn-item small{display:block;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
 .bn-item .row{align-items:end}
 .bn-maps{font-size:13px;color:var(--muted);display:grid;gap:4px;margin-top:10px}
-.bn-maps button{border:0;background:transparent;color:var(--muted);padding:0 6px}
+.bn-maps button{border:0;background:transparent;color:var(--muted);padding:0 6px;min-height:44px;min-width:44px}
 .fx-list{display:grid;gap:6px;background:var(--sunk);border-radius:10px;padding:12px;margin:4px 0 8px}
 .fx-h{display:flex;justify-content:space-between;gap:8px;font-size:14px}
 .fx-chk span:nth-of-type(1){flex:1}
@@ -256,7 +261,7 @@ body{margin:0;padding-top:max(20px, env(safe-area-inset-top));padding-bottom:max
 .ctr-sub .ghost b{margin-left:2px}
 .ctr-done{width:100%;padding:12px}
 button:disabled{opacity:.45;cursor:default}
-#ctrReset.arm{background:var(--out);color:#fff;border-color:var(--out)}
+#ctrReset.arm{background:var(--out-fill);color:var(--on-fill);border-color:var(--out-fill)}
 .quick{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .quick button{border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent-ink);border-radius:999px;padding:7px 14px;font-weight:700;font-size:14px}
 
@@ -274,7 +279,7 @@ button:disabled{opacity:.45;cursor:default}
 dialog.sheet{border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--ink);width:min(520px, calc(100% - 32px));padding:18px;max-height:85vh;overflow-y:auto}
 dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
 .sheet-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.sheet-h h2{margin:0;font-size:17px}
+.sheet-h h2{margin:0;font-size:19px}
 .sheet .status{text-align:left;margin:14px 0 0}
 
 /* ---------- 폰: 탭을 옆으로 넘기는 화면 ---------- */
@@ -283,7 +288,7 @@ dialog.sheet::backdrop{background:rgba(10,14,16,.5)}
   .app{display:block}
   header.top{position:sticky;top:0;z-index:10;background:var(--bg);padding:max(10px, env(safe-area-inset-top)) 16px 8px;align-items:center;flex-wrap:nowrap}
   .brand p{display:none}
-  .brand h1{font-size:21px;white-space:nowrap}
+  .brand h1{font-size:clamp(21px,5.9vw,24px);white-space:nowrap} /* 360px 폰에서도 머리줄 한 줄 */
   .month span{min-width:84px;font-size:14px}
   .month button{width:30px;height:30px}
   .icon-btn{width:40px;height:40px}
